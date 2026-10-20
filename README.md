@@ -27,6 +27,17 @@ config-flow entity pickers, one config entry per thing, rewire later via Options
 - **No fresh tank data = critical.** A silent sensor is never treated as fine.
 - Optional notify service (e.g. `notify.mobile_app_phone`).
 
+## Scheduled programs (winter heating, summer cooling)
+
+Create weekly time blocks with HA's own **Schedule helper** (Settings → Devices &
+services → Helpers → Schedule). Then on a zone: ⚙ Configure → *Scheduled programs*.
+Up to 3 programs per zone, each = a schedule + mode (heat/cool/auto) + target +
+optional months. While a program's schedule is on (and the month matches) it replaces
+the zone's own mode/target; the first matching program wins. Example: *Winter
+mornings* schedule 06:00-08:00 → heat 21° in Jun-Aug; *Summer afternoons* → cool 24°
+in Dec-Feb. A per-zone **Programs** switch turns them all off. Priority: tank guard >
+cool/heat-to boost > program > the zone's own mode/target.
+
 ## Ducted systems (AirTouch) and room units
 
 A ducted unit with zone dampers (e.g. the AirTouch 2+ integration: one `climate`
@@ -46,11 +57,11 @@ Add your zones first, then the tank guard (it picks from existing zones).
 
 ## Roadmap
 
-Dashboard card, weather-forecast pre-cooling (Met.no) and outdoor-temperature
-triggers (Weathercloud), schedules, solar/tariff awareness, pick-sensors-by-area.
+Weather-forecast pre-cooling (Met.no) and outdoor-temperature
+triggers (Weathercloud), pre-heat to reach a schedule start time, solar/tariff awareness, pick-sensors-by-area.
 
 ## Status
 
-v0.1.0 scaffold: core logic and controllers unit-tested with a fake hass;
+v0.4.0: core logic and controllers unit-tested with a fake hass;
 **not yet verified against a live Home Assistant** — do that before relying on
 it for the tanks.

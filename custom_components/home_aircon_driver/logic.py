@@ -172,3 +172,36 @@ def override_reached(kind: str, temp: float | None, target: float) -> bool:
     if temp is None:
         return False
     return temp <= target if kind == ACT_COOL else temp >= target
+
+
+PROGRAM_SLOTS = 3
+
+
+def programs_from_options(cfg: dict) -> list[dict]:
+    """Flat options (program1_schedule, program1_mode, program1_target,
+    program1_months ...) -> ordered list of program dicts. A slot without a
+    schedule is unused."""
+    out = []
+    for i in range(1, PROGRAM_SLOTS + 1):
+        sched = cfg.get(f"program{i}_schedule")
+        if not sched:
+            continue
+        out.append(
+            {
+                "slot": i,
+                "schedule": sched,
+                "mode": cfg.get(f"program{i}_mode") or "heat",
+                "target": float(cfg.get(f"program{i}_target") or 21.0),
+                "months": sorted(int(m) for m in (cfg.get(f"program{i}_months") or [])),
+            }
+        )
+    return out
+
+
+def pick_program(programs: list[dict], schedule_on: dict[str, bool], month: int) -> dict | None:
+    """First program (slot order) whose schedule is on and whose months
+    include `month` (empty months = all year)."""
+    for p in programs:
+        if schedule_on.get(p["schedule"]) and (not p["months"] or month in p["months"]):
+            return p
+    return None

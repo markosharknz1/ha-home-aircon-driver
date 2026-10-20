@@ -49,6 +49,7 @@ from .const import (
     KIND_GUARD,
     KIND_ZONE,
 )
+from .logic import PROGRAM_SLOTS
 
 TEMP_SENSORS = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", device_class="temperature", multiple=True)
@@ -116,6 +117,42 @@ def _guard_schema(hass, d: dict) -> vol.Schema:
             _opt(CONF_NOTIFY, d): selector.TextSelector(),
         }
     )
+
+
+MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+HW_KEYS = {
+    CONF_TEMP_SENSORS, CONF_CLIMATES, CONF_HEATERS, CONF_COOLERS, CONF_DAMPERS, CONF_SENSOR_MAX_AGE,
+    CONF_TANK_SENSORS, CONF_ZONES, CONF_WARN, CONF_CRITICAL, CONF_WARN_SETPOINT,
+    CONF_CRITICAL_SETPOINT, CONF_HYSTERESIS, CONF_STALE_MIN, CONF_NOTIFY,
+}
+PROGRAM_KEYS = {
+    f"program{i}_{f}" for i in range(1, PROGRAM_SLOTS + 1) for f in ("schedule", "mode", "target", "months")
+}
+
+
+def _programs_schema(d: dict) -> vol.Schema:
+    fields: dict = {}
+    for i in range(1, PROGRAM_SLOTS + 1):
+        fields[_opt(f"program{i}_schedule", d)] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="schedule")
+        )
+        fields[vol.Optional(f"program{i}_mode", default=d.get(f"program{i}_mode", "heat"))] = (
+            selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=["heat", "cool", "auto"], mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            )
+        )
+        fields[vol.Optional(f"program{i}_target", default=d.get(f"program{i}_target", 21.0))] = _num(
+            10, 32, 0.5, "°C"
+        )
+        fields[_opt(f"program{i}_months", d)] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[selector.SelectOptionDict(value=str(n + 1), label=m) for n, m in enumerate(MONTH_NAMES)],
+                multiple=True,
+            )
+        )
+    return vol.Schema(fields)
 
 
 def _guard_errors(user_input: dict) -> dict[str, str]:
@@ -201,10 +238,25 @@ class HomeAirconDriverConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class HomeAirconDriverOptionsFlow(OptionsFlow):
-    """Rewire sensors/outputs/thresholds later (e.g. after replacing a sensor)."""
+    """Rewire sensors/outputs/thresholds later; zones also get a Programs step.
+
+    Options are merged per step so editing hardware never wipes programs
+    (and vice versa)."""
+
+    def _current(self) -> dict:
+        return {**self.config_entry.data, **self.config_entry.options}
+
+    def _save(self, user_input: dict, owned: set[str]) -> ConfigFlowResult:
+        kept = {k: v for k, v in self.config_entry.options.items() if k not in owned}
+        return self.async_create_entry(data={**kept, **user_input})
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        current = {**self.config_entry.data, **self.config_entry.options}
+        if self._current().get(CONF_KIND) == KIND_GUARD:
+            return await self.async_step_hardware()
+        return self.async_show_menu(step_id="init", menu_options=["hardware", "programs"])
+
+    async def async_step_hardware(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        current = self._current()
         is_guard = current.get(CONF_KIND) == KIND_GUARD
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -215,6 +267,11 @@ class HomeAirconDriverOptionsFlow(OptionsFlow):
             elif not any(user_input.get(k) for k in (CONF_CLIMATES, CONF_HEATERS, CONF_COOLERS)):
                 errors["base"] = "need_output"
             if not errors:
-                return self.async_create_entry(data=user_input)
+                return self._save(user_input, HW_KEYS)
         schema = _guard_schema(self.hass, current) if is_guard else _zone_schema(current)
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="hardware", data_schema=schema, errors=errors)
+
+    async def async_step_programs(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self._save(user_input, PROGRAM_KEYS)
+        return self.async_show_form(step_id="programs", data_schema=_programs_schema(self._current()))

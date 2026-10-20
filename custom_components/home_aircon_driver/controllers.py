@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Callable
 
 from homeassistant.config_entries import ConfigEntry
@@ -62,10 +62,13 @@ from .logic import (
     corrected_setpoint,
     decide,
     override_reached,
+    pick_program,
+    programs_from_options,
 )
 
 _LOGGER = logging.getLogger(__name__)
 RESEND_AFTER_S = 300
+SimpleState = type("SimpleState", (), {"state": "off"})()
 DEFAULT_OVERRIDE_MINUTES = 180
 
 
@@ -119,6 +122,8 @@ class ZoneController(_Base):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self.mode = "off"
+        self.programs_enabled = True
+        self.active_program: dict | None = None
         self.target = DEFAULT_TARGET
         self.deadband = DEFAULT_DEADBAND
         self.action = ACT_IDLE
@@ -134,6 +139,20 @@ class ZoneController(_Base):
         # switches. fan entity_id -> enabled by the user (default open).
         self.damper_enabled: dict[str, bool] = {}
         self.damper_switches: dict[str, str] = {}
+
+    @property
+    def programs(self) -> list[dict]:
+        return programs_from_options(self.cfg)
+
+    async def async_set_programs_enabled(self, on: bool) -> None:
+        self.programs_enabled = on
+        await self.async_evaluate()
+
+    def _current_program(self) -> dict | None:
+        if not self.programs_enabled:
+            return None
+        on = {p["schedule"]: (self.hass.states.get(p["schedule"]) or SimpleState).state == "on" for p in self.programs}
+        return pick_program(self.programs, on, datetime.now().month)
 
     @property
     def dampers(self) -> list[str]:
@@ -161,7 +180,7 @@ class ZoneController(_Base):
 
     @callback
     def async_setup(self) -> None:
-        watch = self.sensors + self.climates + self.dampers
+        watch = self.sensors + self.climates + self.dampers + [p["schedule"] for p in self.programs]
         if watch:
             self._unsubs.append(
                 async_track_state_change_event(
@@ -253,7 +272,11 @@ class ZoneController(_Base):
         self.temperature, self.temp_source = temp, source
 
         level = self.guard_level
-        target = self.target
+        # A scheduled program (schedule helper "on" + season match) replaces
+        # the manual mode/target while it is active.
+        self.active_program = self._current_program()
+        mode = self.active_program["mode"] if self.active_program else self.mode
+        target = self.active_program["target"] if self.active_program else self.target
         if level >= LEVEL_WARN:
             sp = min((g[2] if g[0] == LEVEL_CRITICAL else g[1]) for g in self._guards.values())
             target = min(target, sp)
@@ -266,11 +289,11 @@ class ZoneController(_Base):
             self.status = "override_cool" if self.action == ACT_COOL else "override_heat"
         elif temp is None:
             self.action = ACT_IDLE
-            self.status = "sensor_lost" if self.mode != "off" else "off"
+            self.status = "sensor_lost" if mode != "off" else "off"
         else:
-            self.action = decide(temp, target, self.deadband, self.mode, self.action)
+            self.action = decide(temp, target, self.deadband, mode, self.action)
             self.status = {ACT_HEAT: "heating", ACT_COOL: "cooling"}.get(
-                self.action, "off" if self.mode == "off" else "idle"
+                self.action, "off" if mode == "off" else "idle"
             )
 
         await self._apply(target, temp, level)

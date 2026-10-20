@@ -147,7 +147,7 @@ class HomeAirconCard extends HTMLElement {
       .flatMap((z) => this._dampers(z))
       .map((id) => (hass.states[id] ? hass.states[id].state : "-"))
       .join("");
-    sig += "#" + dsig;
+    sig += "#" + dsig + zones.map((z) => { const p = hass.states["switch." + z.slug + "_programs"]; const st = hass.states[z.e.status]; return (p ? p.state : "") + JSON.stringify((st && st.attributes.program) || ""); }).join("");
     if (sig !== this._sig) {
       this._sig = sig;
       this._render();
@@ -207,6 +207,7 @@ class HomeAirconCard extends HTMLElement {
         });
         break;
       }
+      case "programs":
       case "damper":
         this._call("homeassistant", "toggle", { entity_id: el.dataset.ent });
         break;
@@ -306,6 +307,16 @@ class HomeAirconCard extends HTMLElement {
         <span class="hint">starts at target ± half this, runs until target</span></div>`;
     }
 
+    const stSt = this._state(z.e.status);
+    const prog = stSt && stSt.attributes.program;
+    const pSw = this._state("switch." + z.slug + "_programs");
+    const until = prog && prog.next_event ? new Date(prog.next_event).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
+    const progLine = prog
+      ? `<div class="prog">📅 Program: ${esc(prog.mode)} ${fmt(parseFloat(prog.target))}°${until ? " until " + until : ""}</div>`
+      : "";
+    const progBtn = pSw
+      ? `<button class="chip ${pSw.state === "on" ? "on" : ""}" data-act="programs" data-slug="${z.slug}" data-ent="switch.${z.slug}_programs">📅 Programs ${pSw.state === "on" ? "on" : "off"}</button>`
+      : "";
     const dIds = this._dampers(z);
     const dampers = dIds.length
       ? `<div class="acts"><span class="lbl">Rooms</span>${dIds
@@ -323,6 +334,7 @@ class HomeAirconCard extends HTMLElement {
         <span class="status ${kind}">${esc(STATUS_TEXT[status] || status)}</span>
       </div>
       ${banner}
+      ${progLine}
       <div class="ctl">
         <div class="segs">${modes}</div>
         <div class="tgt">
@@ -334,6 +346,7 @@ class HomeAirconCard extends HTMLElement {
       <div class="acts">
         <button class="chip cool ${u.panel === "cool" ? "on" : ""}" data-act="panel" data-slug="${z.slug}" data-val="cool">❄️ Cool to…</button>
         <button class="chip heat ${u.panel === "heat" ? "on" : ""}" data-act="panel" data-slug="${z.slug}" data-val="heat">🔥 Heat to…</button>
+        ${progBtn}
         <button class="chip ${u.panel === "settings" ? "on" : ""}" data-act="panel" data-slug="${z.slug}" data-val="settings">⚙</button>
       </div>
       ${dampers}
@@ -382,6 +395,7 @@ const CSS = `
   .status.warn { background:#ffa726; color:#000; } .status.crit { background:#ef5350; color:#fff; }
   .ov { display:flex; align-items:center; justify-content:space-between; margin-top:8px;
     padding:6px 10px; border-radius:8px; background:rgba(66,165,245,.2); }
+  .prog { margin-top:6px; color:var(--secondary-text-color); font-size:.9em; }
   .ov.heat { background:rgba(255,112,67,.22); }
   .ctl { display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap; }
   .segs { display:flex; border-radius:8px; overflow:hidden; background:var(--divider-color); }

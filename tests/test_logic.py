@@ -74,3 +74,17 @@ def test_corrected_setpoint():
     assert f(22, 21.0, 23.0) == 24.0
     assert f(22, 30.0, 20.0) == 19.0   # clamped to -3
     assert f(22, None, 23.0) == 22
+
+
+def test_programs_from_options_and_pick():
+    cfg = {
+        "program1_schedule": "schedule.winter_am", "program1_mode": "heat", "program1_target": 21,
+        "program1_months": ["6", "7", "8"],
+        "program2_schedule": "schedule.always", "program2_mode": "cool", "program2_target": 24,
+    }
+    progs = logic.programs_from_options(cfg)
+    assert [p["slot"] for p in progs] == [1, 2] and progs[0]["months"] == [6, 7, 8]
+    on = {"schedule.winter_am": True, "schedule.always": True}
+    assert logic.pick_program(progs, on, 7)["mode"] == "heat"      # winter: slot 1 wins
+    assert logic.pick_program(progs, on, 1)["mode"] == "cool"      # summer: slot 1 out of season
+    assert logic.pick_program(progs, {"schedule.winter_am": False}, 7) is None

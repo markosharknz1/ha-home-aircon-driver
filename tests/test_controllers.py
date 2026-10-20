@@ -227,3 +227,25 @@ def test_idle_leaves_dampers_alone():
     z.mode = "off"
     run(z.async_evaluate())
     assert _fan_calls(h) == []
+
+
+def test_program_replaces_mode_and_target_while_schedule_on():
+    from datetime import datetime
+    h = make_hass()
+    h.states.set("sensor.room", 18.0)
+    h.states.set("climate.ac", "off", dict(AC))
+    h.states.set("schedule.morning", "on", {"next_event": "2026-06-01T08:00:00+10:00"})
+    m = datetime.now().month
+    z = zone(h, program1_schedule="schedule.morning", program1_mode="heat",
+             program1_target=21, program1_months=[str(m)])
+    z.mode = "off"  # manual mode off; program should still heat
+    run(z.async_evaluate())
+    assert z.status == "heating" and z.active_program["target"] == 21.0
+    # programs switched off -> back to manual (off)
+    run(z.async_set_programs_enabled(False))
+    assert z.status == "off" and z.active_program is None
+    # schedule off -> manual as well
+    run(z.async_set_programs_enabled(True))
+    h.states.set("schedule.morning", "off")
+    run(z.async_evaluate())
+    assert z.active_program is None and z.status == "off"

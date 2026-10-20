@@ -60,7 +60,14 @@ class ZoneStatus(AirconEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        return {"damper_switches": list(self.ctrl.damper_switches.values())}
+        p = self.ctrl.active_program
+        attrs: dict = {"damper_switches": list(self.ctrl.damper_switches.values())}
+        if p:
+            attrs["program"] = {"mode": p["mode"], "target": p["target"], "schedule": p["schedule"]}
+            st = self.ctrl.hass.states.get(p["schedule"])
+            if st is not None:
+                attrs["program"]["next_event"] = st.attributes.get("next_event")
+        return attrs
 
 
 class ZoneOverride(AirconEntity, SensorEntity, RestoreEntity):

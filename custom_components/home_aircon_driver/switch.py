@@ -21,8 +21,33 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     ctrl = hass.data[DOMAIN][entry.entry_id]
-    if isinstance(ctrl, ZoneController) and ctrl.dampers:
-        async_add_entities([DamperSwitch(ctrl, fan_id) for fan_id in ctrl.dampers])
+    if isinstance(ctrl, ZoneController):
+        ents = [ProgramsSwitch(ctrl)]
+        ents += [DamperSwitch(ctrl, fan_id) for fan_id in ctrl.dampers]
+        async_add_entities(ents)
+
+
+class ProgramsSwitch(AirconEntity, SwitchEntity, RestoreEntity):
+    """Master on/off for this zone's scheduled programs."""
+
+    def __init__(self, ctrl: ZoneController) -> None:
+        super().__init__(ctrl, "switch", "programs")
+
+    @property
+    def is_on(self) -> bool:
+        return self.ctrl.programs_enabled
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last and last.state in ("on", "off"):
+            self.ctrl.programs_enabled = last.state == "on"
+
+    async def async_turn_on(self, **kwargs) -> None:
+        await self.ctrl.async_set_programs_enabled(True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        await self.ctrl.async_set_programs_enabled(False)
 
 
 class DamperSwitch(AirconEntity, SwitchEntity, RestoreEntity):
