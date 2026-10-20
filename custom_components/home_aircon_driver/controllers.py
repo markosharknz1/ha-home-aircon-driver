@@ -88,7 +88,10 @@ def read_sensors(hass: HomeAssistant, entity_ids: list[str]) -> list[tuple[float
             val: float | None = float(st.state)
         except (TypeError, ValueError):
             val = None
-        out.append((val, st.last_updated.timestamp()))
+        # last_reported moves on every report, even an unchanged value;
+        # last_updated does not (a steady room would look "stale").
+        seen = getattr(st, "last_reported", None) or st.last_updated
+        out.append((val, seen.timestamp()))
     return out
 
 

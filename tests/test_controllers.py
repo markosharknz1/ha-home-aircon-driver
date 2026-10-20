@@ -249,3 +249,16 @@ def test_program_replaces_mode_and_target_while_schedule_on():
     h.states.set("schedule.morning", "off")
     run(z.async_evaluate())
     assert z.active_program is None and z.status == "off"
+
+
+def test_steady_sensor_that_keeps_reporting_is_not_stale():
+    """last_updated stops moving when the value is unchanged; last_reported
+    keeps moving. The driver must trust last_reported."""
+    h = make_hass()
+    h.states.set("sensor.room", 24.1, age_s=99999)  # value unchanged for ages
+    h.states.d["sensor.room"].last_reported = datetime.fromtimestamp(time.time() - 60, tz=timezone.utc)
+    h.states.set("climate.ac", "off", dict(AC))
+    z = zone(h)
+    z.mode, z.target = "cool", 22.0
+    run(z.async_evaluate())
+    assert z.temp_source == "sensors"
