@@ -139,6 +139,15 @@ class _Base:
                     )
         return readings
 
+    # Handlers MUST be coroutine functions (or @callback): HA runs a plain
+    # lambda in a worker thread, where hass.async_create_task is refused and
+    # the trigger silently never fires.
+    async def _on_change(self, _event) -> None:
+        await self.async_evaluate()
+
+    async def _on_tick(self, _now) -> None:
+        await self.async_evaluate()
+
     @callback
     def async_add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
         self._listeners.append(cb)
@@ -223,13 +232,13 @@ class ZoneController(_Base):
         if watch:
             self._unsubs.append(
                 async_track_state_change_event(
-                    self.hass, watch, lambda _e: self.hass.async_create_task(self.async_evaluate())
+                    self.hass, watch, self._on_change
                 )
             )
         self._unsubs.append(
             async_track_time_interval(
                 self.hass,
-                lambda _n: self.hass.async_create_task(self.async_evaluate()),
+                self._on_tick,
                 timedelta(seconds=TICK_SECONDS),
             )
         )
@@ -496,14 +505,14 @@ class GuardController(_Base):
         if self.tank_sensors:
             self._unsubs.append(
                 async_track_state_change_event(
-                    self.hass, self.tank_sensors, lambda _e: self.hass.async_create_task(self.async_evaluate())
+                    self.hass, self.tank_sensors, self._on_change
                 )
             )
         # The periodic tick is what notices a sensor going silent.
         self._unsubs.append(
             async_track_time_interval(
                 self.hass,
-                lambda _n: self.hass.async_create_task(self.async_evaluate()),
+                self._on_tick,
                 timedelta(seconds=TICK_SECONDS),
             )
         )

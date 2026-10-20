@@ -317,3 +317,24 @@ def test_command_failure_never_freezes_the_reading():
     h.states.set("sensor.room", 21.0)
     run(z.async_evaluate())
     assert z.temperature == 21.0               # next pass reads the new value
+
+
+def test_triggers_are_loop_safe_handlers_not_lambdas(monkeypatch):
+    """HA runs a plain function in a worker thread, where async_create_task
+    is refused. Triggers must be coroutine functions (or @callback)."""
+    import inspect
+    from custom_components.home_aircon_driver import controllers as C
+
+    captured = []
+    monkeypatch.setattr(C, "async_track_state_change_event", lambda hass, ids, action: captured.append(action) or (lambda: None))
+    monkeypatch.setattr(C, "async_track_time_interval", lambda hass, action, every: captured.append(action) or (lambda: None))
+
+    h = make_hass()
+    z = zone(h)
+    z.async_setup()
+    g = GuardController(h, SimpleNamespace(entry_id="g1", title="Reef", data={"kind": "guard", "slug": "reef"},
+                                           options={"tank_sensors": ["sensor.tank"], "zones": []}))
+    g.async_setup()
+    assert len(captured) == 4
+    for action in captured:
+        assert inspect.iscoroutinefunction(action) or getattr(action, "_hass_callback", False)
