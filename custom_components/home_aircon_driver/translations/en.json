@@ -1,0 +1,113 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Home Aircon Driver",
+        "description": "What would you like to add?",
+        "menu_options": {
+          "zone": "A zone (room sensors + aircon/heater/cooler)",
+          "guard": "A tank guard (urgent cooling when tank water gets hot)"
+        }
+      },
+      "zone": {
+        "title": "Name the zone",
+        "description": "For example Lounge or Fish room.",
+        "data": { "name": "Zone name" }
+      },
+      "guard": {
+        "title": "Name the tank guard",
+        "description": "For example Reef tanks.",
+        "data": { "name": "Guard name" }
+      },
+      "zone_hw": {
+        "title": "Zone sensors and outputs",
+        "description": "Pick the room temperature sensors that should drive this zone (e.g. your Zigbee sensors). The aircon unit's own reading is only used if every sensor goes quiet. Add at least one output.",
+        "data": {
+          "temperature_sensors": "Room temperature sensors",
+          "climates": "Aircon / climate units",
+          "heaters": "Heater switches",
+          "coolers": "Cooler / fan switches",
+          "sensor_max_age_min": "Ignore a sensor after (minutes without update)"
+        }
+      },
+      "guard_hw": {
+        "title": "Tank guard settings",
+        "description": "The hottest fresh tank sensor drives the level. If every tank sensor goes silent the guard treats it as critical.",
+        "data": {
+          "tank_sensors": "Tank water temperature sensors",
+          "zones": "Zones to cool when the guard trips",
+          "warn_temp": "Warn at",
+          "critical_temp": "Critical at",
+          "warn_setpoint": "Cooling target on warn",
+          "critical_setpoint": "Cooling target on critical",
+          "hysteresis": "Release margin (stay tripped until this far below)",
+          "stale_min": "Treat tank sensors as silent after (minutes)",
+          "notify_service": "Notify service (optional, e.g. notify.mobile_app_phone)"
+        }
+      }
+    },
+    "error": {
+      "bad_name": "Please enter a name.",
+      "name_exists": "That name is already in use.",
+      "need_sensor": "Pick at least one temperature sensor.",
+      "need_output": "Pick at least one climate unit, heater or cooler.",
+      "critical_below_warn": "Critical must be higher than warn."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Rewire sensors and outputs",
+        "description": "Change sensors, outputs or thresholds. Replaced a sensor? Pick the new one here.",
+        "data": {
+          "temperature_sensors": "Room temperature sensors",
+          "climates": "Aircon / climate units",
+          "heaters": "Heater switches",
+          "coolers": "Cooler / fan switches",
+          "sensor_max_age_min": "Ignore a sensor after (minutes without update)",
+          "tank_sensors": "Tank water temperature sensors",
+          "zones": "Zones to cool when the guard trips",
+          "warn_temp": "Warn at",
+          "critical_temp": "Critical at",
+          "warn_setpoint": "Cooling target on warn",
+          "critical_setpoint": "Cooling target on critical",
+          "hysteresis": "Release margin (stay tripped until this far below)",
+          "stale_min": "Treat tank sensors as silent after (minutes)",
+          "notify_service": "Notify service (optional)"
+        }
+      }
+    },
+    "error": {
+      "need_sensor": "Pick at least one temperature sensor.",
+      "need_output": "Pick at least one climate unit, heater or cooler.",
+      "critical_below_warn": "Critical must be higher than warn."
+    }
+  },
+  "entity": {
+    "select": { "mode": { "name": "Mode" } },
+    "number": {
+      "target": { "name": "Target temperature" },
+      "deadband": { "name": "Deadband" }
+    },
+    "sensor": {
+      "temperature": { "name": "Temperature" },
+      "status": {
+        "name": "Status",
+        "state": {
+          "off": "Off",
+          "idle": "Idle",
+          "heating": "Heating",
+          "cooling": "Cooling",
+          "guard_warn": "Tank warning - cooling",
+          "guard_critical": "TANK CRITICAL - cooling",
+          "sensor_lost": "Sensors lost"
+        }
+      },
+      "level": {
+        "name": "Guard level",
+        "state": { "ok": "OK", "warn": "Warning", "critical": "Critical" }
+      },
+      "hottest": { "name": "Hottest tank" }
+    }
+  }
+}

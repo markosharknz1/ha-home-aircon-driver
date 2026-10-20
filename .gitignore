@@ -1,0 +1,9 @@
+.DS_Store
+*.pyc
+__pycache__/
+*.zip
+
+# Disposable local HA Core test rig (WSL venv + config) used to preview
+# dashboards/automations against live HA — not part of the pack itself.
+ha-test-env/
+test-ha-config/

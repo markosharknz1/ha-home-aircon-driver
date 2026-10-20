@@ -1,0 +1,393 @@
+"""Zone and Guard controllers.
+
+A ZoneController owns one area's thermostat loop: it reads the chosen
+(accurate) temperature sensors, decides heat/cool/idle with hysteresis and
+drives climate entities and/or switches. A GuardController watches tank
+water temperature and pushes its level into the zones it protects; a zone
+under guard overrides its mode and target and cools hard.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from datetime import timedelta
+from typing import Callable
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
+
+from .const import (
+    CONF_CLIMATES,
+    CONF_COOLERS,
+    CONF_CRITICAL,
+    CONF_CRITICAL_SETPOINT,
+    CONF_HEATERS,
+    CONF_HYSTERESIS,
+    CONF_NOTIFY,
+    CONF_SENSOR_MAX_AGE,
+    CONF_SLUG,
+    CONF_STALE_MIN,
+    CONF_TANK_SENSORS,
+    CONF_TEMP_SENSORS,
+    CONF_WARN,
+    CONF_WARN_SETPOINT,
+    CONF_ZONES,
+    DEFAULT_CRITICAL,
+    DEFAULT_CRITICAL_SETPOINT,
+    DEFAULT_DEADBAND,
+    DEFAULT_HYSTERESIS,
+    DEFAULT_SENSOR_MAX_AGE,
+    DEFAULT_STALE_MIN,
+    DEFAULT_TARGET,
+    DEFAULT_WARN,
+    DEFAULT_WARN_SETPOINT,
+    DOMAIN,
+    TICK_SECONDS,
+)
+from .logic import (
+    ACT_COOL,
+    ACT_HEAT,
+    ACT_IDLE,
+    LEVEL_CRITICAL,
+    LEVEL_OK,
+    LEVEL_WARN,
+    GuardEvaluator,
+    GuardResult,
+    average_fresh,
+    corrected_setpoint,
+    decide,
+)
+
+_LOGGER = logging.getLogger(__name__)
+RESEND_AFTER_S = 300
+
+
+def cfg_of(entry: ConfigEntry) -> dict:
+    """Entry data with options layered on top (options rewire hardware)."""
+    return {**entry.data, **entry.options}
+
+
+def read_sensors(hass: HomeAssistant, entity_ids: list[str]) -> list[tuple[float | None, float]]:
+    out: list[tuple[float | None, float]] = []
+    for eid in entity_ids:
+        st = hass.states.get(eid)
+        if st is None:
+            out.append((None, 0.0))
+            continue
+        try:
+            val: float | None = float(st.state)
+        except (TypeError, ValueError):
+            val = None
+        out.append((val, st.last_updated.timestamp()))
+    return out
+
+
+class _Base:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self.entry = entry
+        self.cfg = cfg_of(entry)
+        self.slug: str = self.cfg[CONF_SLUG]
+        self._listeners: list[Callable[[], None]] = []
+        self._unsubs: list[Callable[[], None]] = []
+
+    @callback
+    def async_add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
+        self._listeners.append(cb)
+        return lambda: self._listeners.remove(cb)
+
+    @callback
+    def _notify(self) -> None:
+        for cb in list(self._listeners):
+            cb()
+
+    @callback
+    def async_shutdown(self) -> None:
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
+
+
+class ZoneController(_Base):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self.mode = "off"
+        self.target = DEFAULT_TARGET
+        self.deadband = DEFAULT_DEADBAND
+        self.action = ACT_IDLE
+        self.status = "off"
+        self.temperature: float | None = None
+        self.temp_source = "none"
+        # guard entry_id -> (level, warn_setpoint, critical_setpoint)
+        self._guards: dict[str, tuple[int, float, float]] = {}
+        self._last_cmd: dict[str, tuple[str, float, float]] = {}
+
+    @property
+    def sensors(self) -> list[str]:
+        return list(self.cfg.get(CONF_TEMP_SENSORS, []))
+
+    @property
+    def climates(self) -> list[str]:
+        return list(self.cfg.get(CONF_CLIMATES, []))
+
+    @property
+    def heaters(self) -> list[str]:
+        return list(self.cfg.get(CONF_HEATERS, []))
+
+    @property
+    def coolers(self) -> list[str]:
+        return list(self.cfg.get(CONF_COOLERS, []))
+
+    @property
+    def guard_level(self) -> int:
+        return max((g[0] for g in self._guards.values()), default=LEVEL_OK)
+
+    @callback
+    def async_setup(self) -> None:
+        watch = self.sensors + self.climates
+        if watch:
+            self._unsubs.append(
+                async_track_state_change_event(
+                    self.hass, watch, lambda _e: self.hass.async_create_task(self.async_evaluate())
+                )
+            )
+        self._unsubs.append(
+            async_track_time_interval(
+                self.hass,
+                lambda _n: self.hass.async_create_task(self.async_evaluate()),
+                timedelta(seconds=TICK_SECONDS),
+            )
+        )
+        self.hass.async_create_task(self.async_evaluate())
+
+    # ---- user settings (called by select/number entities) ----
+    async def async_set_mode(self, mode: str) -> None:
+        self.mode = mode
+        await self.async_evaluate()
+
+    async def async_set_target(self, value: float) -> None:
+        self.target = value
+        await self.async_evaluate()
+
+    async def async_set_deadband(self, value: float) -> None:
+        self.deadband = value
+        await self.async_evaluate()
+
+    # ---- guard hooks ----
+    async def async_set_guard(self, guard_id: str, level: int, warn_sp: float, crit_sp: float) -> None:
+        prev = self.guard_level
+        if level == LEVEL_OK:
+            self._guards.pop(guard_id, None)
+        else:
+            self._guards[guard_id] = (level, warn_sp, crit_sp)
+        if self.guard_level != prev or level != LEVEL_OK:
+            await self.async_evaluate()
+
+    async def async_clear_guard(self, guard_id: str) -> None:
+        if self._guards.pop(guard_id, None) is not None:
+            await self.async_evaluate()
+
+    # ---- the loop ----
+    def _zone_temperature(self, now: float) -> tuple[float | None, str]:
+        max_age = float(self.cfg.get(CONF_SENSOR_MAX_AGE, DEFAULT_SENSOR_MAX_AGE)) * 60
+        t = average_fresh(read_sensors(self.hass, self.sensors), now, max_age)
+        if t is not None:
+            return t, "sensors"
+        # Fallback: the units' own readings (less accurate, but not blind).
+        units = []
+        for eid in self.climates:
+            st = self.hass.states.get(eid)
+            try:
+                units.append((float(st.attributes.get("current_temperature")), now))  # type: ignore[union-attr, arg-type]
+            except (TypeError, ValueError, AttributeError):
+                pass
+        t = average_fresh(units, now, max_age)
+        return (t, "unit_fallback") if t is not None else (None, "none")
+
+    async def async_evaluate(self) -> None:
+        now = time.time()
+        temp, source = self._zone_temperature(now)
+        self.temperature, self.temp_source = temp, source
+
+        level = self.guard_level
+        target = self.target
+        if level >= LEVEL_WARN:
+            sp = min((g[2] if g[0] == LEVEL_CRITICAL else g[1]) for g in self._guards.values())
+            target = min(target, sp)
+            self.action = ACT_COOL  # guard forces cooling regardless of mode/temp
+            self.status = "guard_critical" if level == LEVEL_CRITICAL else "guard_warn"
+        elif temp is None:
+            self.action = ACT_IDLE
+            self.status = "sensor_lost" if self.mode != "off" else "off"
+        else:
+            self.action = decide(temp, target, self.deadband, self.mode, self.action)
+            self.status = {ACT_HEAT: "heating", ACT_COOL: "cooling"}.get(
+                self.action, "off" if self.mode == "off" else "idle"
+            )
+
+        await self._apply(target, temp, level)
+        self._notify()
+
+    async def _apply(self, target: float, temp: float | None, level: int) -> None:
+        for eid in self.heaters:
+            await self._set_switch(eid, self.action == ACT_HEAT)
+        for eid in self.coolers:
+            await self._set_switch(eid, self.action == ACT_COOL)
+        for eid in self.climates:
+            await self._set_climate(eid, target, temp, level)
+
+    async def _set_switch(self, eid: str, on: bool) -> None:
+        st = self.hass.states.get(eid)
+        if st is None or st.state in ("unavailable", "unknown"):
+            return
+        if (st.state == "on") == on:
+            return
+        await self.hass.services.async_call(
+            "homeassistant", "turn_on" if on else "turn_off", {"entity_id": eid}, blocking=False
+        )
+
+    async def _set_climate(self, eid: str, target: float, temp: float | None, level: int) -> None:
+        st = self.hass.states.get(eid)
+        if st is None or st.state in ("unavailable", "unknown"):
+            return
+        want = {ACT_HEAT: "heat", ACT_COOL: "cool"}.get(self.action, "off")
+        modes = st.attributes.get("hvac_modes") or []
+        if want != "off" and want not in modes:
+            _LOGGER.warning("%s does not support hvac mode %s", eid, want)
+            return
+        if want == "off" and "off" not in modes:
+            return
+
+        setpoint = corrected_setpoint(target, temp, st.attributes.get("current_temperature"))
+        step = float(st.attributes.get("target_temp_step") or 0.5)
+        setpoint = round(setpoint / step) * step
+        lo, hi = st.attributes.get("min_temp"), st.attributes.get("max_temp")
+        if lo is not None:
+            setpoint = max(float(lo), setpoint)
+        if hi is not None:
+            setpoint = min(float(hi), setpoint)
+
+        cur_sp = st.attributes.get("temperature")
+        in_sync = st.state == want and (
+            want == "off" or (cur_sp is not None and abs(float(cur_sp) - setpoint) < 0.1)
+        )
+        last = self._last_cmd.get(eid)
+        now = time.time()
+        if in_sync:
+            self._last_cmd[eid] = (want, setpoint, now)
+            return
+        if last and last[0] == want and abs(last[1] - setpoint) < 0.1 and now - last[2] < RESEND_AFTER_S:
+            return  # already asked recently; give the unit time to respond
+        self._last_cmd[eid] = (want, setpoint, now)
+
+        if st.state != want:
+            await self.hass.services.async_call(
+                "climate", "set_hvac_mode", {"entity_id": eid, "hvac_mode": want}, blocking=False
+            )
+        if want != "off":
+            await self.hass.services.async_call(
+                "climate", "set_temperature", {"entity_id": eid, "temperature": setpoint}, blocking=False
+            )
+            if level == LEVEL_CRITICAL:
+                for fan in ("high", "turbo", "max", "strong"):
+                    if fan in (st.attributes.get("fan_modes") or []):
+                        await self.hass.services.async_call(
+                            "climate", "set_fan_mode", {"entity_id": eid, "fan_mode": fan}, blocking=False
+                        )
+                        break
+
+
+class GuardController(_Base):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        c = self.cfg
+        self.warn = float(c.get(CONF_WARN, DEFAULT_WARN))
+        self.critical = float(c.get(CONF_CRITICAL, DEFAULT_CRITICAL))
+        self.warn_sp = float(c.get(CONF_WARN_SETPOINT, DEFAULT_WARN_SETPOINT))
+        self.crit_sp = float(c.get(CONF_CRITICAL_SETPOINT, DEFAULT_CRITICAL_SETPOINT))
+        self.evaluator = GuardEvaluator(
+            warn=self.warn,
+            critical=self.critical,
+            hysteresis=float(c.get(CONF_HYSTERESIS, DEFAULT_HYSTERESIS)),
+            stale_after_s=float(c.get(CONF_STALE_MIN, DEFAULT_STALE_MIN)) * 60,
+        )
+        self.result = GuardResult(LEVEL_OK, None, None, "ok")
+        self._notified_level = LEVEL_OK
+
+    @property
+    def tank_sensors(self) -> list[str]:
+        return list(self.cfg.get(CONF_TANK_SENSORS, []))
+
+    @property
+    def zone_ids(self) -> list[str]:
+        return list(self.cfg.get(CONF_ZONES, []))
+
+    @callback
+    def async_setup(self) -> None:
+        if self.tank_sensors:
+            self._unsubs.append(
+                async_track_state_change_event(
+                    self.hass, self.tank_sensors, lambda _e: self.hass.async_create_task(self.async_evaluate())
+                )
+            )
+        # The periodic tick is what notices a sensor going silent.
+        self._unsubs.append(
+            async_track_time_interval(
+                self.hass,
+                lambda _n: self.hass.async_create_task(self.async_evaluate()),
+                timedelta(seconds=TICK_SECONDS),
+            )
+        )
+        self.hass.async_create_task(self.async_evaluate())
+
+    def _zones(self) -> list[ZoneController]:
+        found = []
+        for zid in self.zone_ids:
+            z = self.hass.data.get(DOMAIN, {}).get(zid)
+            if isinstance(z, ZoneController):
+                found.append(z)
+        return found
+
+    async def async_evaluate(self) -> None:
+        self.result = self.evaluator.update(time.time(), read_sensors(self.hass, self.tank_sensors))
+        # Re-pushed every tick (idempotent) so zones that load later or
+        # reload still pick the level up.
+        for z in self._zones():
+            await z.async_set_guard(self.entry.entry_id, self.result.level, self.warn_sp, self.crit_sp)
+        await self._maybe_notify()
+        self._notify()
+
+    async def _maybe_notify(self) -> None:
+        level = self.result.level
+        if level == self._notified_level:
+            return
+        prev, self._notified_level = self._notified_level, level
+        svc = (self.cfg.get(CONF_NOTIFY) or "").strip()
+        if not svc or "." not in svc:
+            return
+        domain, name = svc.split(".", 1)
+        r = self.result
+        if level > prev:
+            msg = (
+                f"No fresh tank temperature data - treating as CRITICAL."
+                if r.reason == "no_data"
+                else f"Tank water {r.hottest:.1f}C ({r.reason}); cooling the house."
+            )
+            title = "TANK TEMPERATURE CRITICAL" if level == LEVEL_CRITICAL else "Tank temperature warning"
+        else:
+            msg = f"Tank water back to {r.hottest:.1f}C; level now {r.name}." if r.hottest is not None else "Recovered."
+            title = "Tank temperature recovering"
+        try:
+            await self.hass.services.async_call(domain, name, {"title": title, "message": msg}, blocking=False)
+        except Exception:  # noqa: BLE001 - a bad notify target must never break protection
+            _LOGGER.exception("Guard notification via %s failed", svc)
+
+    @callback
+    def async_shutdown(self) -> None:
+        super().async_shutdown()
+        for z in self._zones():
+            self.hass.async_create_task(z.async_clear_guard(self.entry.entry_id))
