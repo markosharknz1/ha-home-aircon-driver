@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN
 from .controllers import GuardController, ZoneController
@@ -21,7 +22,7 @@ async def async_setup_entry(
 ) -> None:
     ctrl = hass.data[DOMAIN][entry.entry_id]
     if isinstance(ctrl, ZoneController):
-        async_add_entities([ZoneTemperature(ctrl), ZoneStatus(ctrl)])
+        async_add_entities([ZoneTemperature(ctrl), ZoneStatus(ctrl), ZoneOverride(ctrl)])
     elif isinstance(ctrl, GuardController):
         async_add_entities([GuardLevel(ctrl), GuardHottest(ctrl)])
 
@@ -48,7 +49,7 @@ class ZoneStatus(AirconEntity, SensorEntity):
     """off | idle | heating | cooling | guard_warn | guard_critical | sensor_lost"""
 
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = ["off", "idle", "heating", "cooling", "guard_warn", "guard_critical", "sensor_lost"]
+    _attr_options = ["off", "idle", "heating", "cooling", "guard_warn", "guard_critical", "sensor_lost", "override_cool", "override_heat"]
 
     def __init__(self, ctrl: ZoneController) -> None:
         super().__init__(ctrl, "sensor", "status")
@@ -56,6 +57,47 @@ class ZoneStatus(AirconEntity, SensorEntity):
     @property
     def native_value(self) -> str:
         return self.ctrl.status
+
+
+class ZoneOverride(AirconEntity, SensorEntity, RestoreEntity):
+    """none | cool | heat, with target/until attributes. Restored on restart
+    so a running override survives a reboot (until its own deadline)."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["none", "cool", "heat"]
+
+    def __init__(self, ctrl: ZoneController) -> None:
+        super().__init__(ctrl, "sensor", "override")
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last and last.state in ("cool", "heat"):
+            a = last.attributes
+            try:
+                self.ctrl.restore_override(
+                    {"kind": last.state, "target": a.get("target"), "until": float(a.get("until_ts", 0))}
+                )
+            except (TypeError, ValueError):
+                pass
+
+    @property
+    def native_value(self) -> str:
+        ov = self.ctrl.override
+        return ov["kind"] if ov else "none"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        ov = self.ctrl.override
+        if not ov:
+            return {}
+        from datetime import datetime, timezone
+
+        return {
+            "target": ov["target"],
+            "until_ts": ov["until"],
+            "until": datetime.fromtimestamp(ov["until"], tz=timezone.utc).isoformat(),
+        }
 
 
 class GuardLevel(AirconEntity, SensorEntity):

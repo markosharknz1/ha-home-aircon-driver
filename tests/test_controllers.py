@@ -149,3 +149,31 @@ def test_guard_controller_pushes_level_and_goes_critical_on_silence():
     h.states.set("sensor.tank", 24.0, age_s=99999)
     run(g.async_evaluate())
     assert g.result.reason == "no_data" and z.guard_level == LEVEL_CRITICAL
+
+
+def test_override_cools_to_target_then_reverts():
+    h = make_hass()
+    h.states.set("sensor.room", 25.0)
+    h.states.set("climate.ac", "off", dict(AC))
+    z = zone(h)
+    z.mode, z.target = "off", 22.0
+    run(z.async_set_override("cool", 21.0, 60))
+    assert z.status == "override_cool" and z.override is not None
+    # room reaches the boost target -> override clears, zone returns to mode off
+    h.states.set("sensor.room", 20.9)
+    run(z.async_evaluate())
+    assert z.override is None and z.status == "off"
+
+
+def test_override_times_out_and_guard_beats_it():
+    h = make_hass()
+    h.states.set("sensor.room", 25.0)
+    h.states.set("climate.ac", "off", dict(AC))
+    z = zone(h)
+    run(z.async_set_override("heat", 28.0, 60))
+    assert z.status == "override_heat"
+    run(z.async_set_guard("g1", LEVEL_CRITICAL, 22.0, 18.0))
+    assert z.status == "guard_critical"  # tank protection wins over a heat boost
+    z.override["until"] = time.time() - 1
+    run(z.async_set_guard("g1", LEVEL_OK, 22.0, 18.0))
+    assert z.override is None

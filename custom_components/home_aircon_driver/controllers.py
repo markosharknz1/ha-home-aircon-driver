@@ -60,10 +60,12 @@ from .logic import (
     average_fresh,
     corrected_setpoint,
     decide,
+    override_reached,
 )
 
 _LOGGER = logging.getLogger(__name__)
 RESEND_AFTER_S = 300
+DEFAULT_OVERRIDE_MINUTES = 180
 
 
 def cfg_of(entry: ConfigEntry) -> dict:
@@ -125,6 +127,8 @@ class ZoneController(_Base):
         # guard entry_id -> (level, warn_setpoint, critical_setpoint)
         self._guards: dict[str, tuple[int, float, float]] = {}
         self._last_cmd: dict[str, tuple[str, float, float]] = {}
+        # Active one-shot "cool to X" / "heat to X": kind, target, until (epoch s)
+        self.override: dict | None = None
 
     @property
     def sensors(self) -> list[str]:
@@ -177,6 +181,28 @@ class ZoneController(_Base):
         self.deadband = value
         await self.async_evaluate()
 
+    # ---- one-shot override ("cool to X" / "heat to X") ----
+    async def async_set_override(self, kind: str, target: float, minutes: float | None = None) -> None:
+        """Run until the zone reaches `target`, then drop back to normal.
+        `minutes` caps the run so a stuck sensor can never run it forever."""
+        if kind not in (ACT_COOL, ACT_HEAT):
+            raise ValueError("override kind must be 'cool' or 'heat'")
+        cap = DEFAULT_OVERRIDE_MINUTES if not minutes else float(minutes)
+        self.override = {"kind": kind, "target": float(target), "until": time.time() + cap * 60}
+        self._last_cmd.clear()
+        await self.async_evaluate()
+
+    async def async_clear_override(self) -> None:
+        if self.override is not None:
+            self.override = None
+            self._last_cmd.clear()
+            await self.async_evaluate()
+
+    def restore_override(self, data: dict | None) -> None:
+        """Called on startup with the saved override attributes."""
+        if data and data.get("until", 0) > time.time():
+            self.override = {"kind": data["kind"], "target": float(data["target"]), "until": float(data["until"])}
+
     # ---- guard hooks ----
     async def async_set_guard(self, guard_id: str, level: int, warn_sp: float, crit_sp: float) -> None:
         prev = self.guard_level
@@ -220,6 +246,11 @@ class ZoneController(_Base):
             target = min(target, sp)
             self.action = ACT_COOL  # guard forces cooling regardless of mode/temp
             self.status = "guard_critical" if level == LEVEL_CRITICAL else "guard_warn"
+        elif self._override_active(temp):
+            ov = self.override
+            target = ov["target"]  # type: ignore[index]
+            self.action = ov["kind"]  # type: ignore[index]
+            self.status = "override_cool" if self.action == ACT_COOL else "override_heat"
         elif temp is None:
             self.action = ACT_IDLE
             self.status = "sensor_lost" if self.mode != "off" else "off"
@@ -231,6 +262,18 @@ class ZoneController(_Base):
 
         await self._apply(target, temp, level)
         self._notify()
+
+    def _override_active(self, temp: float | None) -> bool:
+        """True while an override should keep running; clears it when it is
+        done (target reached) or timed out."""
+        ov = self.override
+        if ov is None:
+            return False
+        if time.time() >= ov["until"] or override_reached(ov["kind"], temp, ov["target"]):
+            self.override = None
+            self._last_cmd.clear()
+            return False
+        return True
 
     async def _apply(self, target: float, temp: float | None, level: int) -> None:
         for eid in self.heaters:

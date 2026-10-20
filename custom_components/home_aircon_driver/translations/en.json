@@ -12,12 +12,16 @@
       "zone": {
         "title": "Name the zone",
         "description": "For example Lounge or Fish room.",
-        "data": { "name": "Zone name" }
+        "data": {
+          "name": "Zone name"
+        }
       },
       "guard": {
         "title": "Name the tank guard",
         "description": "For example Reef tanks.",
-        "data": { "name": "Guard name" }
+        "data": {
+          "name": "Guard name"
+        }
       },
       "zone_hw": {
         "title": "Zone sensors and outputs",
@@ -84,13 +88,23 @@
     }
   },
   "entity": {
-    "select": { "mode": { "name": "Mode" } },
+    "select": {
+      "mode": {
+        "name": "Mode"
+      }
+    },
     "number": {
-      "target": { "name": "Target temperature" },
-      "deadband": { "name": "Deadband" }
+      "target": {
+        "name": "Target temperature"
+      },
+      "deadband": {
+        "name": "Deadband"
+      }
     },
     "sensor": {
-      "temperature": { "name": "Temperature" },
+      "temperature": {
+        "name": "Temperature"
+      },
       "status": {
         "name": "Status",
         "state": {
@@ -100,14 +114,64 @@
           "cooling": "Cooling",
           "guard_warn": "Tank warning - cooling",
           "guard_critical": "TANK CRITICAL - cooling",
-          "sensor_lost": "Sensors lost"
+          "sensor_lost": "Sensors lost",
+          "override_cool": "Cooling (boost)",
+          "override_heat": "Heating (boost)"
         }
       },
       "level": {
         "name": "Guard level",
-        "state": { "ok": "OK", "warn": "Warning", "critical": "Critical" }
+        "state": {
+          "ok": "OK",
+          "warn": "Warning",
+          "critical": "Critical"
+        }
       },
-      "hottest": { "name": "Hottest tank" }
+      "hottest": {
+        "name": "Hottest tank"
+      },
+      "override": {
+        "name": "Boost",
+        "state": {
+          "none": "None",
+          "cool": "Cooling to target",
+          "heat": "Heating to target"
+        }
+      }
+    }
+  },
+  "services": {
+    "set_override": {
+      "name": "Cool or heat to a temperature",
+      "description": "Run a zone until it reaches the target, then return to normal.",
+      "fields": {
+        "zone": {
+          "name": "Zone",
+          "description": "Zone slug, e.g. lounge."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "cool or heat."
+        },
+        "target": {
+          "name": "Target",
+          "description": "Temperature to reach."
+        },
+        "max_minutes": {
+          "name": "Max minutes",
+          "description": "Safety cap on how long the boost may run."
+        }
+      }
+    },
+    "clear_override": {
+      "name": "Cancel boost",
+      "description": "Cancel a running cool/heat-to boost.",
+      "fields": {
+        "zone": {
+          "name": "Zone",
+          "description": "Zone slug."
+        }
+      }
     }
   }
 }

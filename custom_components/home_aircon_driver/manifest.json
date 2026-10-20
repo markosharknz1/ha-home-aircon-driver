@@ -1,13 +1,18 @@
 {
   "domain": "home_aircon_driver",
   "name": "Home Aircon Driver",
-  "codeowners": ["@markosharknz1"],
+  "codeowners": [
+    "@markosharknz1"
+  ],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": [
+    "http",
+    "frontend"
+  ],
   "documentation": "https://github.com/markosharknz1/ha-home-aircon-driver",
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/markosharknz1/ha-home-aircon-driver/issues",
   "requirements": [],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

@@ -164,3 +164,11 @@ def corrected_setpoint(
         return target
     adj = max(-max_adjust, min(max_adjust, unit_temp - sensor_temp))
     return target + adj
+
+
+def override_reached(kind: str, temp: float | None, target: float) -> bool:
+    """A "cool to X" / "heat to X" override is finished once X is reached.
+    With no reading it cannot finish early (the max-minutes timeout does)."""
+    if temp is None:
+        return False
+    return temp <= target if kind == ACT_COOL else temp >= target

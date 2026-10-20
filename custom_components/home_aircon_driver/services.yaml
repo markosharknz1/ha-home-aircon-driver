@@ -1,0 +1,39 @@
+set_override:
+  fields:
+    zone:
+      required: true
+      example: lounge
+      selector:
+        text:
+    mode:
+      required: true
+      example: cool
+      selector:
+        select:
+          options:
+            - cool
+            - heat
+    target:
+      required: true
+      example: 21
+      selector:
+        number:
+          min: 10
+          max: 32
+          step: 0.5
+          unit_of_measurement: "°C"
+    max_minutes:
+      required: false
+      example: 120
+      selector:
+        number:
+          min: 5
+          max: 720
+          unit_of_measurement: min
+clear_override:
+  fields:
+    zone:
+      required: true
+      example: lounge
+      selector:
+        text:
