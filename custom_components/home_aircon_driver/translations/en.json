@@ -31,8 +31,9 @@
           "climates": "Aircon / climate units",
           "heaters": "Heater switches",
           "coolers": "Cooler / fan switches",
-          "sensor_max_age_min": "Ignore a sensor after (minutes without update)",
-          "dampers": "Zone dampers (e.g. AirTouch zone fans, optional)"
+          "sensor_max_age_min": "Default: treat a sensor as silent after (minutes)",
+          "dampers": "Zone dampers (e.g. AirTouch zone fans, optional)",
+          "refresh_quiet_sensors": "Ask Home Assistant to refresh a sensor that goes quiet"
         }
       },
       "guard_hw": {
@@ -47,7 +48,8 @@
           "critical_setpoint": "Cooling target on critical",
           "hysteresis": "Release margin (stay tripped until this far below)",
           "stale_min": "Treat tank sensors as silent after (minutes)",
-          "notify_service": "Notify service (optional, e.g. notify.mobile_app_phone)"
+          "notify_service": "Notify service (optional, e.g. notify.mobile_app_phone)",
+          "refresh_quiet_sensors": "Ask Home Assistant to refresh a sensor that goes quiet"
         }
       }
     },
@@ -65,7 +67,8 @@
         "title": "What would you like to change?",
         "menu_options": {
           "hardware": "Sensors, outputs and thresholds",
-          "programs": "Scheduled programs"
+          "programs": "Scheduled programs",
+          "timeouts": "How long before a sensor counts as silent"
         }
       },
       "hardware": {
@@ -76,7 +79,7 @@
           "climates": "Aircon / climate units",
           "heaters": "Heater switches",
           "coolers": "Cooler / fan switches",
-          "sensor_max_age_min": "Ignore a sensor after (minutes without update)",
+          "sensor_max_age_min": "Default: treat a sensor as silent after (minutes)",
           "tank_sensors": "Tank water temperature sensors",
           "zones": "Zones to cool when the guard trips",
           "warn_temp": "Warn at",
@@ -86,7 +89,8 @@
           "hysteresis": "Release margin (stay tripped until this far below)",
           "stale_min": "Treat tank sensors as silent after (minutes)",
           "notify_service": "Notify service (optional)",
-          "dampers": "Zone dampers (e.g. AirTouch zone fans, optional)"
+          "dampers": "Zone dampers (e.g. AirTouch zone fans, optional)",
+          "refresh_quiet_sensors": "Ask Home Assistant to refresh a sensor that goes quiet"
         }
       },
       "programs": {
@@ -106,6 +110,11 @@
           "program3_target": "Program 3: target",
           "program3_months": "Program 3: only in these months (empty = all year)"
         }
+      },
+      "timeouts": {
+        "title": "Per-sensor silence limits",
+        "description": "Minutes without a report before each sensor counts as silent. Zigbee sensors that push every few minutes can use a short limit; cloud or polled sensors that only update every few hours need a long one. The entry default is {default} min.",
+        "data": {}
       }
     },
     "error": {

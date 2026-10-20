@@ -49,6 +49,16 @@ tank-guard trip opens every damper. Room split units (e.g. Mitsubishi ECHONET Li
 `climate` entities) are separate Zone entries with their own sensors. The card shows
 them all.
 
+## Sensors that report at different rates
+
+Zigbee sensors push every few minutes; cloud or polled ones (e.g. a Red Sea
+integration) may update only every few hours. Each zone/guard has a default
+"treat a sensor as silent after" limit, and ⚙ Configure -> *How long before a sensor
+counts as silent* sets a limit **per sensor**. A sensor that goes quiet past half its
+limit is also asked to refresh (`homeassistant.update_entity`, at most once per 10
+minutes per sensor; switch it off with *Ask Home Assistant to refresh*). Freshness is
+judged by `last_reported`, so a steady reading is not mistaken for a dead sensor.
+
 ## Install
 
 HACS → Custom repositories → this repo (Integration) → install → restart →

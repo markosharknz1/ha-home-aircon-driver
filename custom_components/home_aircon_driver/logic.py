@@ -24,13 +24,21 @@ ACT_IDLE = "idle"
 ACT_HEAT = "heat"
 ACT_COOL = "cool"
 
-# (value, last_updated_epoch_seconds); value None = unavailable/unknown
-Reading = tuple[float | None, float]
+# (value, last_seen_epoch_seconds[, own_max_age_seconds]); value None =
+# unavailable/unknown. A sensor's own limit overrides the caller's default,
+# because a Zigbee sensor and a cloud-polled one go quiet at very different rates.
+Reading = tuple
 
 
 def fresh_values(readings: list[Reading], now: float, max_age_s: float) -> list[float]:
     """Values that are numeric and updated within max_age_s."""
-    return [v for v, ts in readings if v is not None and (now - ts) <= max_age_s]
+    out = []
+    for r in readings:
+        value, seen = r[0], r[1]
+        limit = r[2] if len(r) > 2 and r[2] is not None else max_age_s
+        if value is not None and (now - seen) <= limit:
+            out.append(value)
+    return out
 
 
 def average_fresh(

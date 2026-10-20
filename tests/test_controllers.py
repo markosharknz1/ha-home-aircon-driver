@@ -262,3 +262,37 @@ def test_steady_sensor_that_keeps_reporting_is_not_stale():
     z.mode, z.target = "cool", 22.0
     run(z.async_evaluate())
     assert z.temp_source == "sensors"
+
+
+def test_per_sensor_limit_keeps_slow_sensor_alive():
+    h = make_hass()
+    h.states.set("sensor.zigbee", 22.0, age_s=60)
+    h.states.set("sensor.cloud", 26.0, age_s=3 * 3600)  # polled every few hours
+    h.states.set("climate.ac", "off", dict(AC))
+    base = dict(temperature_sensors=["sensor.zigbee", "sensor.cloud"], sensor_max_age_min=30)
+    z = zone(h, **base)
+    run(z.async_evaluate())
+    assert z.temperature == 22.0  # cloud sensor is past the 30 min default -> ignored
+    z2 = zone(h, **base, sensor_timeouts={"sensor.cloud": 240})
+    run(z2.async_evaluate())
+    assert z2.temperature == 24.0  # now averaged in: (22 + 26) / 2
+
+
+def test_quiet_sensor_gets_one_refresh_request_per_window():
+    h = make_hass()
+    h.states.set("sensor.room", 22.0, age_s=20 * 60)  # past half of 30 min
+    h.states.set("climate.ac", "off", dict(AC))
+    z = zone(h)
+    run(z.async_evaluate())
+    run(z.async_evaluate())
+    upd = [c for c in h.services.calls if c[1] == "update_entity"]
+    assert len(upd) == 1 and upd[0][2]["entity_id"] == "sensor.room"
+
+
+def test_refresh_can_be_switched_off():
+    h = make_hass()
+    h.states.set("sensor.room", 22.0, age_s=20 * 60)
+    h.states.set("climate.ac", "off", dict(AC))
+    z = zone(h, refresh_quiet_sensors=False)
+    run(z.async_evaluate())
+    assert not [c for c in h.services.calls if c[1] == "update_entity"]

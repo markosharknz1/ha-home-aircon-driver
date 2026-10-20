@@ -30,7 +30,9 @@ from .const import (
     CONF_KIND,
     CONF_NAME,
     CONF_NOTIFY,
+    CONF_REFRESH,
     CONF_SENSOR_MAX_AGE,
+    CONF_SENSOR_TIMEOUTS,
     CONF_SLUG,
     CONF_STALE_MIN,
     CONF_TANK_SENSORS,
@@ -83,7 +85,8 @@ def _zone_schema(d: dict) -> vol.Schema:
             _opt(CONF_DAMPERS, d): FANS,
             vol.Required(
                 CONF_SENSOR_MAX_AGE, default=d.get(CONF_SENSOR_MAX_AGE, DEFAULT_SENSOR_MAX_AGE)
-            ): _num(5, 240, 5, "min"),
+            ): _num(5, 1440, 5, "min"),
+            vol.Required(CONF_REFRESH, default=d.get(CONF_REFRESH, True)): selector.BooleanSelector(),
         }
     )
 
@@ -112,8 +115,9 @@ def _guard_schema(hass, d: dict) -> vol.Schema:
                 0.1, 3, 0.1, "°C"
             ),
             vol.Required(CONF_STALE_MIN, default=d.get(CONF_STALE_MIN, DEFAULT_STALE_MIN)): _num(
-                5, 120, 5, "min"
+                5, 1440, 5, "min"
             ),
+            vol.Required(CONF_REFRESH, default=d.get(CONF_REFRESH, True)): selector.BooleanSelector(),
             _opt(CONF_NOTIFY, d): selector.TextSelector(),
         }
     )
@@ -121,7 +125,7 @@ def _guard_schema(hass, d: dict) -> vol.Schema:
 
 MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 HW_KEYS = {
-    CONF_TEMP_SENSORS, CONF_CLIMATES, CONF_HEATERS, CONF_COOLERS, CONF_DAMPERS, CONF_SENSOR_MAX_AGE,
+    CONF_TEMP_SENSORS, CONF_CLIMATES, CONF_HEATERS, CONF_COOLERS, CONF_DAMPERS, CONF_SENSOR_MAX_AGE, CONF_REFRESH,
     CONF_TANK_SENSORS, CONF_ZONES, CONF_WARN, CONF_CRITICAL, CONF_WARN_SETPOINT,
     CONF_CRITICAL_SETPOINT, CONF_HYSTERESIS, CONF_STALE_MIN, CONF_NOTIFY,
 }
@@ -252,8 +256,8 @@ class HomeAirconDriverOptionsFlow(OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if self._current().get(CONF_KIND) == KIND_GUARD:
-            return await self.async_step_hardware()
-        return self.async_show_menu(step_id="init", menu_options=["hardware", "programs"])
+            return self.async_show_menu(step_id="init", menu_options=["hardware", "timeouts"])
+        return self.async_show_menu(step_id="init", menu_options=["hardware", "programs", "timeouts"])
 
     async def async_step_hardware(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         current = self._current()
@@ -275,3 +279,30 @@ class HomeAirconDriverOptionsFlow(OptionsFlow):
         if user_input is not None:
             return self._save(user_input, PROGRAM_KEYS)
         return self.async_show_form(step_id="programs", data_schema=_programs_schema(self._current()))
+
+    async def async_step_timeouts(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Per-sensor 'treat as silent after' limits. A Zigbee sensor may report
+        every few minutes, a cloud or polled one only every few hours."""
+        cur = self._current()
+        ids = list(cur.get(CONF_TANK_SENSORS if cur.get(CONF_KIND) == KIND_GUARD else CONF_TEMP_SENSORS, []))
+        default = (
+            cur.get(CONF_STALE_MIN, DEFAULT_STALE_MIN)
+            if cur.get(CONF_KIND) == KIND_GUARD
+            else cur.get(CONF_SENSOR_MAX_AGE, DEFAULT_SENSOR_MAX_AGE)
+        )
+        own = cur.get(CONF_SENSOR_TIMEOUTS) or {}
+        if user_input is not None:
+            return self.async_create_entry(
+                data={
+                    **self.config_entry.options,
+                    CONF_SENSOR_TIMEOUTS: {k: float(v) for k, v in user_input.items()},
+                }
+            )
+        schema = vol.Schema(
+            {vol.Required(e, default=own.get(e, default)): _num(1, 1440, 1, "min") for e in ids}
+        )
+        return self.async_show_form(
+            step_id="timeouts",
+            data_schema=schema,
+            description_placeholders={"default": str(int(default))},
+        )

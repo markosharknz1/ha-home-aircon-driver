@@ -29,7 +29,9 @@ from .const import (
     CONF_HEATERS,
     CONF_HYSTERESIS,
     CONF_NOTIFY,
+    CONF_REFRESH,
     CONF_SENSOR_MAX_AGE,
+    CONF_SENSOR_TIMEOUTS,
     CONF_SLUG,
     CONF_STALE_MIN,
     CONF_TANK_SENSORS,
@@ -68,6 +70,7 @@ from .logic import (
 
 _LOGGER = logging.getLogger(__name__)
 RESEND_AFTER_S = 300
+REFRESH_EVERY_S = 600
 SimpleState = type("SimpleState", (), {"state": "off"})()
 DEFAULT_OVERRIDE_MINUTES = 180
 
@@ -77,12 +80,18 @@ def cfg_of(entry: ConfigEntry) -> dict:
     return {**entry.data, **entry.options}
 
 
-def read_sensors(hass: HomeAssistant, entity_ids: list[str]) -> list[tuple[float | None, float]]:
-    out: list[tuple[float | None, float]] = []
+def read_sensors(
+    hass: HomeAssistant,
+    entity_ids: list[str],
+    limits_s: dict[str, float] | None = None,
+) -> list[tuple]:
+    """(value, last_seen, own_limit_seconds) per sensor."""
+    out: list[tuple] = []
     for eid in entity_ids:
+        limit = (limits_s or {}).get(eid)
         st = hass.states.get(eid)
         if st is None:
-            out.append((None, 0.0))
+            out.append((None, 0.0, limit))
             continue
         try:
             val: float | None = float(st.state)
@@ -91,7 +100,7 @@ def read_sensors(hass: HomeAssistant, entity_ids: list[str]) -> list[tuple[float
         # last_reported moves on every report, even an unchanged value;
         # last_updated does not (a steady room would look "stale").
         seen = getattr(st, "last_reported", None) or st.last_updated
-        out.append((val, seen.timestamp()))
+        out.append((val, seen.timestamp(), limit))
     return out
 
 
@@ -103,6 +112,32 @@ class _Base:
         self.slug: str = self.cfg[CONF_SLUG]
         self._listeners: list[Callable[[], None]] = []
         self._unsubs: list[Callable[[], None]] = []
+        self._last_refresh: dict[str, float] = {}
+
+    def _limits_s(self, ids: list[str], default_min: float) -> dict[str, float]:
+        """Per-sensor 'treat as silent after' (seconds): the sensor's own
+        override if set, else the entry default."""
+        own = self.cfg.get(CONF_SENSOR_TIMEOUTS) or {}
+        return {e: float(own.get(e) or default_min) * 60 for e in ids}
+
+    async def _readings(self, ids: list[str], default_min: float) -> list[tuple]:
+        """Readings with per-sensor limits. A sensor that is past half its
+        limit is asked to refresh (rate-limited), which helps integrations
+        that poll or need a nudge; sleepy Zigbee devices simply ignore it."""
+        limits = self._limits_s(ids, default_min)
+        readings = read_sensors(self.hass, ids, limits)
+        if self.cfg.get(CONF_REFRESH, True):
+            now = time.time()
+            for eid, (val, seen, limit) in zip(ids, readings):
+                st = self.hass.states.get(eid)
+                if st is None or st.state == "unavailable":
+                    continue
+                if now - seen > 0.5 * limit and now - self._last_refresh.get(eid, 0) > REFRESH_EVERY_S:
+                    self._last_refresh[eid] = now
+                    await self.hass.services.async_call(
+                        "homeassistant", "update_entity", {"entity_id": eid}, blocking=False
+                    )
+        return readings
 
     @callback
     def async_add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
@@ -253,9 +288,10 @@ class ZoneController(_Base):
             await self.async_evaluate()
 
     # ---- the loop ----
-    def _zone_temperature(self, now: float) -> tuple[float | None, str]:
-        max_age = float(self.cfg.get(CONF_SENSOR_MAX_AGE, DEFAULT_SENSOR_MAX_AGE)) * 60
-        t = average_fresh(read_sensors(self.hass, self.sensors), now, max_age)
+    async def _zone_temperature(self, now: float) -> tuple[float | None, str]:
+        default_min = float(self.cfg.get(CONF_SENSOR_MAX_AGE, DEFAULT_SENSOR_MAX_AGE))
+        max_age = default_min * 60
+        t = average_fresh(await self._readings(self.sensors, default_min), now, max_age)
         if t is not None:
             return t, "sensors"
         # Fallback: the units' own readings (less accurate, but not blind).
@@ -271,7 +307,7 @@ class ZoneController(_Base):
 
     async def async_evaluate(self) -> None:
         now = time.time()
-        temp, source = self._zone_temperature(now)
+        temp, source = await self._zone_temperature(now)
         self.temperature, self.temp_source = temp, source
 
         level = self.guard_level
@@ -462,7 +498,8 @@ class GuardController(_Base):
         return found
 
     async def async_evaluate(self) -> None:
-        self.result = self.evaluator.update(time.time(), read_sensors(self.hass, self.tank_sensors))
+        default_min = float(self.cfg.get(CONF_STALE_MIN, DEFAULT_STALE_MIN))
+        self.result = self.evaluator.update(time.time(), await self._readings(self.tank_sensors, default_min))
         # Re-pushed every tick (idempotent) so zones that load later or
         # reload still pick the level up.
         for z in self._zones():
