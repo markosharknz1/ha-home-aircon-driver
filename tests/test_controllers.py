@@ -296,3 +296,24 @@ def test_refresh_can_be_switched_off():
     z = zone(h, refresh_quiet_sensors=False)
     run(z.async_evaluate())
     assert not [c for c in h.services.calls if c[1] == "update_entity"]
+
+
+def test_command_failure_never_freezes_the_reading():
+    h = make_hass()
+    h.states.set("sensor.room", 22.5)
+    h.states.set("climate.ac", "cool", dict(AC))
+
+    async def boom(domain, service, data, blocking=False):
+        raise RuntimeError("AirTouch rejected the command")
+
+    h.services.async_call = boom
+    z = zone(h)
+    z.mode, z.target = "cool", 22.0
+    seen = []
+    z.async_add_listener(lambda: seen.append(z.temperature))
+    run(z.async_evaluate())
+    assert seen == [22.5]                      # entities were still refreshed
+    assert "AirTouch rejected" in z.last_error  # and the failure is visible
+    h.states.set("sensor.room", 21.0)
+    run(z.async_evaluate())
+    assert z.temperature == 21.0               # next pass reads the new value

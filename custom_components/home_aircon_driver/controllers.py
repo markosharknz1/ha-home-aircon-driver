@@ -161,6 +161,7 @@ class ZoneController(_Base):
         super().__init__(hass, entry)
         self.mode = "off"
         self.programs_enabled = True
+        self.last_error: str | None = None
         self.active_program: dict | None = None
         self.target = DEFAULT_TARGET
         self.deadband = DEFAULT_DEADBAND
@@ -306,6 +307,17 @@ class ZoneController(_Base):
         return (t, "unit_fallback") if t is not None else (None, "none")
 
     async def async_evaluate(self) -> None:
+        """One decision pass. Never raises: an error is logged and kept in
+        `last_error` (shown on the Status sensor), and the entities are
+        always refreshed so the reading can never freeze behind a failure."""
+        try:
+            await self._evaluate()
+        except Exception as err:  # noqa: BLE001
+            self.last_error = f"{type(err).__name__}: {err}"
+            _LOGGER.exception("Zone %s: evaluation failed", self.slug)
+        self._notify()
+
+    async def _evaluate(self) -> None:
         now = time.time()
         temp, source = await self._zone_temperature(now)
         self.temperature, self.temp_source = temp, source
@@ -335,8 +347,8 @@ class ZoneController(_Base):
                 self.action, "off" if mode == "off" else "idle"
             )
 
+        self.last_error = None
         await self._apply(target, temp, level)
-        self._notify()
 
     def _override_active(self, temp: float | None) -> bool:
         """True while an override should keep running; clears it when it is
@@ -351,13 +363,20 @@ class ZoneController(_Base):
         return True
 
     async def _apply(self, target: float, temp: float | None, level: int) -> None:
-        for eid in self.heaters:
-            await self._set_switch(eid, self.action == ACT_HEAT)
-        for eid in self.coolers:
-            await self._set_switch(eid, self.action == ACT_COOL)
-        for eid in self.climates:
-            await self._set_climate(eid, target, temp, level)
-        await self._apply_dampers(level)
+        # Each output is isolated: one failing command must not stop the
+        # others (or the entity refresh) and is reported in last_error.
+        jobs = (
+            [(eid, self._set_switch(eid, self.action == ACT_HEAT)) for eid in self.heaters]
+            + [(eid, self._set_switch(eid, self.action == ACT_COOL)) for eid in self.coolers]
+            + [(eid, self._set_climate(eid, target, temp, level)) for eid in self.climates]
+            + [("dampers", self._apply_dampers(level))]
+        )
+        for name, job in jobs:
+            try:
+                await job
+            except Exception as err:  # noqa: BLE001
+                self.last_error = f"{name}: {type(err).__name__}: {err}"
+                _LOGGER.exception("Zone %s: command to %s failed", self.slug, name)
 
     async def _apply_dampers(self, level: int) -> None:
         """Open the dampers of enabled zones while the system is running.
@@ -462,6 +481,7 @@ class GuardController(_Base):
         )
         self.result = GuardResult(LEVEL_OK, None, None, "ok")
         self._notified_level = LEVEL_OK
+        self.last_error: str | None = None
 
     @property
     def tank_sensors(self) -> list[str]:
@@ -498,14 +518,26 @@ class GuardController(_Base):
         return found
 
     async def async_evaluate(self) -> None:
+        try:
+            await self._evaluate()
+        except Exception as err:  # noqa: BLE001
+            self.last_error = f"{type(err).__name__}: {err}"
+            _LOGGER.exception("Guard %s: evaluation failed", self.slug)
+        self._notify()
+
+    async def _evaluate(self) -> None:
         default_min = float(self.cfg.get(CONF_STALE_MIN, DEFAULT_STALE_MIN))
         self.result = self.evaluator.update(time.time(), await self._readings(self.tank_sensors, default_min))
+        self.last_error = None
         # Re-pushed every tick (idempotent) so zones that load later or
-        # reload still pick the level up.
+        # reload still pick the level up. One zone failing never blocks the rest.
         for z in self._zones():
-            await z.async_set_guard(self.entry.entry_id, self.result.level, self.warn_sp, self.crit_sp)
+            try:
+                await z.async_set_guard(self.entry.entry_id, self.result.level, self.warn_sp, self.crit_sp)
+            except Exception as err:  # noqa: BLE001
+                self.last_error = f"zone {z.slug}: {type(err).__name__}: {err}"
+                _LOGGER.exception("Guard %s: pushing level to %s failed", self.slug, z.slug)
         await self._maybe_notify()
-        self._notify()
 
     async def _maybe_notify(self) -> None:
         level = self.result.level

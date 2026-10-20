@@ -62,6 +62,8 @@ class ZoneStatus(AirconEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         p = self.ctrl.active_program
         attrs: dict = {"damper_switches": list(self.ctrl.damper_switches.values())}
+        if self.ctrl.last_error:
+            attrs["last_error"] = self.ctrl.last_error
         if p:
             attrs["program"] = {"mode": p["mode"], "target": p["target"], "schedule": p["schedule"]}
             st = self.ctrl.hass.states.get(p["schedule"])
@@ -132,6 +134,7 @@ class GuardLevel(AirconEntity, SensorEntity):
             "warn_temp": self.ctrl.warn,
             "critical_temp": self.ctrl.critical,
             "protecting": self.ctrl.zone_ids,
+            "last_error": self.ctrl.last_error,
         }
 
 
