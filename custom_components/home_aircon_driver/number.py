@@ -55,14 +55,19 @@ class TargetNumber(_ZoneNumber):
 
 
 class DeadbandNumber(_ZoneNumber):
-    _attr_native_min_value = 0.2
+    _attr_native_min_value = 1
     _attr_native_max_value = 4
-    _attr_native_step = 0.1
+    _attr_native_step = 1
     _attr_entity_category = EntityCategory.CONFIG
     attr_name = "deadband"
 
     def __init__(self, ctrl: ZoneController) -> None:
         super().__init__(ctrl, "number", "deadband")
 
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # Whole degrees only: round any older fractional saved value.
+        self.ctrl.deadband = float(max(1, round(self.ctrl.deadband)))
+
     async def async_set_native_value(self, value: float) -> None:
-        await self.ctrl.async_set_deadband(value)
+        await self.ctrl.async_set_deadband(float(max(1, round(value))))

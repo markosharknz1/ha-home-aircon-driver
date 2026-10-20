@@ -203,7 +203,7 @@ class HomeAirconCard extends HTMLElement {
         const db = num(this._state(zone.e.deadband)) ?? 1;
         this._call("number", "set_value", {
           entity_id: zone.e.deadband,
-          value: Math.min(4, Math.max(0.2, Math.round((db + parseFloat(val)) * 10) / 10)),
+          value: Math.min(4, Math.max(1, Math.round(db + parseFloat(val)))),
         });
         break;
       }
@@ -301,9 +301,9 @@ class HomeAirconCard extends HTMLElement {
       </div>`;
     } else if (u.panel === "settings") {
       panel = `<div class="panel"><span class="lbl">Deadband</span>
-        <button class="step" data-act="deadband" data-slug="${z.slug}" data-val="-0.1">−</button>
-        <b class="val">${db.toFixed(1)}°</b>
-        <button class="step" data-act="deadband" data-slug="${z.slug}" data-val="0.1">+</button>
+        <button class="step" data-act="deadband" data-slug="${z.slug}" data-val="-1">−</button>
+        <b class="val">${db.toFixed(0)}°</b>
+        <button class="step" data-act="deadband" data-slug="${z.slug}" data-val="1">+</button>
         <span class="hint">starts at target ± half this, runs until target</span></div>`;
     }
 
