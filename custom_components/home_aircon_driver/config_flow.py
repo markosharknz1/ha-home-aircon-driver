@@ -22,6 +22,7 @@ from homeassistant.util import slugify
 from .const import (
     CONF_CLIMATES,
     CONF_COOLERS,
+    CONF_DAMPERS,
     CONF_CRITICAL,
     CONF_CRITICAL_SETPOINT,
     CONF_HEATERS,
@@ -53,6 +54,7 @@ TEMP_SENSORS = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", device_class="temperature", multiple=True)
 )
 CLIMATES = selector.EntitySelector(selector.EntitySelectorConfig(domain="climate", multiple=True))
+FANS = selector.EntitySelector(selector.EntitySelectorConfig(domain="fan", multiple=True))
 SWITCHES = selector.EntitySelector(selector.EntitySelectorConfig(domain="switch", multiple=True))
 
 
@@ -77,6 +79,7 @@ def _zone_schema(d: dict) -> vol.Schema:
             _opt(CONF_CLIMATES, d): CLIMATES,
             _opt(CONF_HEATERS, d): SWITCHES,
             _opt(CONF_COOLERS, d): SWITCHES,
+            _opt(CONF_DAMPERS, d): FANS,
             vol.Required(
                 CONF_SENSOR_MAX_AGE, default=d.get(CONF_SENSOR_MAX_AGE, DEFAULT_SENSOR_MAX_AGE)
             ): _num(5, 240, 5, "min"),

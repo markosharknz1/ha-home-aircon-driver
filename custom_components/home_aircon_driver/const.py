@@ -13,6 +13,7 @@ CONF_TEMP_SENSORS = "temperature_sensors"
 CONF_CLIMATES = "climates"
 CONF_HEATERS = "heaters"
 CONF_COOLERS = "coolers"
+CONF_DAMPERS = "dampers"
 CONF_SENSOR_MAX_AGE = "sensor_max_age_min"
 
 # Guard

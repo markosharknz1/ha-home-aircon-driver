@@ -177,3 +177,53 @@ def test_override_times_out_and_guard_beats_it():
     z.override["until"] = time.time() - 1
     run(z.async_set_guard("g1", LEVEL_OK, 22.0, 18.0))
     assert z.override is None
+
+
+def _ducted(h, **extra):
+    h.states.set("sensor.room", 25.0)
+    h.states.set("climate.ac", "off", dict(AC))
+    for n in ("lounge", "bed1"):
+        h.states.set(f"fan.{n}", "off")
+    return zone(h, dampers=["fan.lounge", "fan.bed1"], **extra)
+
+
+def _fan_calls(h):
+    return [(c[1], c[2]["entity_id"]) for c in h.services.calls if c[0] == "fan"]
+
+
+def test_dampers_follow_enabled_zones_when_running():
+    h = make_hass()
+    z = _ducted(h)
+    z.mode, z.target = "cool", 22.0
+    z.damper_enabled["fan.bed1"] = False
+    run(z.async_evaluate())
+    calls = _fan_calls(h)
+    assert ("turn_on", "fan.lounge") in calls
+    assert ("turn_on", "fan.bed1") not in calls
+
+
+def test_at_least_one_damper_stays_open():
+    h = make_hass()
+    z = _ducted(h)
+    z.mode, z.target = "cool", 22.0
+    z.damper_enabled.update({"fan.lounge": False, "fan.bed1": False})
+    run(z.async_evaluate())
+    assert ("turn_on", "fan.lounge") in _fan_calls(h)
+
+
+def test_guard_opens_every_damper():
+    h = make_hass()
+    z = _ducted(h)
+    z.mode = "off"
+    z.damper_enabled["fan.bed1"] = False
+    run(z.async_set_guard("g1", LEVEL_CRITICAL, 22.0, 18.0))
+    calls = _fan_calls(h)
+    assert ("turn_on", "fan.lounge") in calls and ("turn_on", "fan.bed1") in calls
+
+
+def test_idle_leaves_dampers_alone():
+    h = make_hass()
+    z = _ducted(h)
+    z.mode = "off"
+    run(z.async_evaluate())
+    assert _fan_calls(h) == []

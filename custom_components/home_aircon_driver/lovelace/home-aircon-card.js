@@ -136,13 +136,18 @@ class HomeAirconCard extends HTMLElement {
     this._hass = hass;
     const { zones, guards } = discover(hass, this._config && this._config.zones);
     this._found = { zones, guards };
-    const sig = [...zones, ...guards]
+    let sig = [...zones, ...guards]
       .flatMap((i) => Object.values(i.e))
       .map((id) => {
         const s = hass.states[id];
         return s ? s.state + JSON.stringify(s.attributes.until_ts || "") : "-";
       })
       .join("|");
+    const dsig = zones
+      .flatMap((z) => this._dampers(z))
+      .map((id) => (hass.states[id] ? hass.states[id].state : "-"))
+      .join("");
+    sig += "#" + dsig;
     if (sig !== this._sig) {
       this._sig = sig;
       this._render();
@@ -157,6 +162,11 @@ class HomeAirconCard extends HTMLElement {
   }
   disconnectedCallback() {
     clearInterval(this._timer);
+  }
+
+  _dampers(z) {
+    const st = this._hass && z.e.status ? this._hass.states[z.e.status] : null;
+    return (st && st.attributes.damper_switches) || [];
   }
 
   _state(id) {
@@ -197,6 +207,9 @@ class HomeAirconCard extends HTMLElement {
         });
         break;
       }
+      case "damper":
+        this._call("homeassistant", "toggle", { entity_id: el.dataset.ent });
+        break;
       case "panel":
         u.panel = u.panel === val ? null : val;
         if (val === "cool" || val === "heat") {
@@ -293,6 +306,16 @@ class HomeAirconCard extends HTMLElement {
         <span class="hint">starts at target ± half this, runs until target</span></div>`;
     }
 
+    const dIds = this._dampers(z);
+    const dampers = dIds.length
+      ? `<div class="acts"><span class="lbl">Rooms</span>${dIds
+          .map((id) => {
+            const st = this._state(id);
+            const nm = ((st && st.attributes.friendly_name) || id).replace(new RegExp("^" + z.name + "\s+", "i"), "").replace(/ damper$/i, "");
+            return `<button class="chip ${st && st.state === "on" ? "on" : ""}" data-act="damper" data-slug="${z.slug}" data-ent="${esc(id)}">${esc(nm)}</button>`;
+          })
+          .join("")}</div>`
+      : "";
     return `<div class="zone ${kind}">
       <div class="top">
         <span class="name">${esc(z.name)}</span>
@@ -313,6 +336,7 @@ class HomeAirconCard extends HTMLElement {
         <button class="chip heat ${u.panel === "heat" ? "on" : ""}" data-act="panel" data-slug="${z.slug}" data-val="heat">🔥 Heat to…</button>
         <button class="chip ${u.panel === "settings" ? "on" : ""}" data-act="panel" data-slug="${z.slug}" data-val="settings">⚙</button>
       </div>
+      ${dampers}
       ${panel}
     </div>`;
   }

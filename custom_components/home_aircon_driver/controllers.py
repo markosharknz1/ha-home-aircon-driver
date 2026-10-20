@@ -25,6 +25,7 @@ from .const import (
     CONF_COOLERS,
     CONF_CRITICAL,
     CONF_CRITICAL_SETPOINT,
+    CONF_DAMPERS,
     CONF_HEATERS,
     CONF_HYSTERESIS,
     CONF_NOTIFY,
@@ -129,6 +130,14 @@ class ZoneController(_Base):
         self._last_cmd: dict[str, tuple[str, float, float]] = {}
         # Active one-shot "cool to X" / "heat to X": kind, target, until (epoch s)
         self.override: dict | None = None
+        # Ducted systems (e.g. AirTouch): zone-damper fans + their on/off
+        # switches. fan entity_id -> enabled by the user (default open).
+        self.damper_enabled: dict[str, bool] = {}
+        self.damper_switches: dict[str, str] = {}
+
+    @property
+    def dampers(self) -> list[str]:
+        return list(self.cfg.get(CONF_DAMPERS, []))
 
     @property
     def sensors(self) -> list[str]:
@@ -152,7 +161,7 @@ class ZoneController(_Base):
 
     @callback
     def async_setup(self) -> None:
-        watch = self.sensors + self.climates
+        watch = self.sensors + self.climates + self.dampers
         if watch:
             self._unsubs.append(
                 async_track_state_change_event(
@@ -179,6 +188,10 @@ class ZoneController(_Base):
 
     async def async_set_deadband(self, value: float) -> None:
         self.deadband = value
+        await self.async_evaluate()
+
+    async def async_set_damper(self, fan_id: str, enabled: bool) -> None:
+        self.damper_enabled[fan_id] = enabled
         await self.async_evaluate()
 
     # ---- one-shot override ("cool to X" / "heat to X") ----
@@ -282,6 +295,33 @@ class ZoneController(_Base):
             await self._set_switch(eid, self.action == ACT_COOL)
         for eid in self.climates:
             await self._set_climate(eid, target, temp, level)
+        await self._apply_dampers(level)
+
+    async def _apply_dampers(self, level: int) -> None:
+        """Open the dampers of enabled zones while the system is running.
+
+        Tank guard (warn/critical) opens every damper. At least one damper
+        is always kept open while running: a ducted unit must never push
+        air into fully closed ducts. When the zone is idle/off the dampers
+        are left alone.
+        """
+        if not self.dampers or (self.action == ACT_IDLE and level < LEVEL_WARN):
+            return
+        if level >= LEVEL_WARN:
+            want = set(self.dampers)
+        else:
+            want = {d for d in self.dampers if self.damper_enabled.get(d, True)}
+            if not want:
+                want = {self.dampers[0]}
+        for eid in self.dampers:
+            st = self.hass.states.get(eid)
+            if st is None or st.state in ("unavailable", "unknown"):
+                continue
+            is_on = st.state == "on"
+            if eid in want and not is_on:
+                await self.hass.services.async_call("fan", "turn_on", {"entity_id": eid}, blocking=False)
+            elif eid not in want and is_on:
+                await self.hass.services.async_call("fan", "turn_off", {"entity_id": eid}, blocking=False)
 
     async def _set_switch(self, eid: str, on: bool) -> None:
         st = self.hass.states.get(eid)

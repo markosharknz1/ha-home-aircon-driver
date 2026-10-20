@@ -31,7 +31,8 @@
           "climates": "Aircon / climate units",
           "heaters": "Heater switches",
           "coolers": "Cooler / fan switches",
-          "sensor_max_age_min": "Ignore a sensor after (minutes without update)"
+          "sensor_max_age_min": "Ignore a sensor after (minutes without update)",
+          "dampers": "Zone dampers (e.g. AirTouch zone fans, optional)"
         }
       },
       "guard_hw": {
@@ -77,7 +78,8 @@
           "critical_setpoint": "Cooling target on critical",
           "hysteresis": "Release margin (stay tripped until this far below)",
           "stale_min": "Treat tank sensors as silent after (minutes)",
-          "notify_service": "Notify service (optional)"
+          "notify_service": "Notify service (optional)",
+          "dampers": "Zone dampers (e.g. AirTouch zone fans, optional)"
         }
       }
     },

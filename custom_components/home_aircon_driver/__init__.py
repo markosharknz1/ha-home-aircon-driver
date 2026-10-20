@@ -17,7 +17,7 @@ from .const import CONF_KIND, DOMAIN, KIND_GUARD
 from .controllers import GuardController, ZoneController
 from .frontend import async_register_card
 
-PLATFORMS = [Platform.NUMBER, Platform.SELECT, Platform.SENSOR]
+PLATFORMS = [Platform.NUMBER, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

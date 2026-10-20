@@ -27,6 +27,17 @@ config-flow entity pickers, one config entry per thing, rewire later via Options
 - **No fresh tank data = critical.** A silent sensor is never treated as fine.
 - Optional notify service (e.g. `notify.mobile_app_phone`).
 
+## Ducted systems (AirTouch) and room units
+
+A ducted unit with zone dampers (e.g. the AirTouch 2+ integration: one `climate`
+for the unit, one `fan` per zone) is **one Zone entry**: the unit as the climate
+output, a single sensor (e.g. by the air return) as the thermostat input, and the
+zone fans as *Zone dampers*. Each damper gets an on/off switch ("open this room
+when the system runs"); at least one damper always stays open while running, and a
+tank-guard trip opens every damper. Room split units (e.g. Mitsubishi ECHONET Lite
+`climate` entities) are separate Zone entries with their own sensors. The card shows
+them all.
+
 ## Install
 
 HACS → Custom repositories → this repo (Integration) → install → restart →

@@ -58,6 +58,10 @@ class ZoneStatus(AirconEntity, SensorEntity):
     def native_value(self) -> str:
         return self.ctrl.status
 
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"damper_switches": list(self.ctrl.damper_switches.values())}
+
 
 class ZoneOverride(AirconEntity, SensorEntity, RestoreEntity):
     """none | cool | heat, with target/until attributes. Restored on restart
