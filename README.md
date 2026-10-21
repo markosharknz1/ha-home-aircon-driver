@@ -27,6 +27,13 @@ config-flow entity pickers, one config entry per thing, rewire later via Options
 - **No fresh tank data = critical.** A silent sensor is never treated as fine.
 - Optional notify service (e.g. `notify.mobile_app_phone`).
 
+## Card: 24 h graph
+
+Each zone has a **📈 24h** button: the zone temperature over the last day, the current
+target as a dashed line, and shaded bands where the zone was cooling (blue) or heating
+(orange). It reads Home Assistant's recorder history, so it needs the default
+`recorder` (on by default).
+
 ## Scheduled programs (winter heating, summer cooling)
 
 Create weekly time blocks with HA's own **Schedule helper** (Settings → Devices &

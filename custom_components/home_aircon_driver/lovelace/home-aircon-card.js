@@ -109,7 +109,8 @@ class HomeAirconCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._ui = {}; // slug -> {panel: 'cool'|'heat'|'settings'|null, x, mins}
+    this._ui = {}; // slug -> {panel: 'cool'|'heat'|'settings'|'graph'|null, x, mins}
+    this._hist = {}; // slug -> {at, temp: [[ms, v]], status: [[ms, state]], loading}
     this._sig = "";
     this._timer = null;
     this.shadowRoot.addEventListener("click", (ev) => this._onClick(ev));
@@ -169,6 +170,97 @@ class HomeAirconCard extends HTMLElement {
     return (st && st.attributes.damper_switches) || [];
   }
 
+  // ---- 24 h graph ----------------------------------------------------
+  _parseHist(rows) {
+    // history/history_during_period (minimal_response): [{s, lu|last_updated}, ...]
+    return (rows || [])
+      .map((r) => {
+        const t = r.lu !== undefined ? r.lu * 1000 : new Date(r.last_updated).getTime();
+        return [t, r.s !== undefined ? r.s : r.state];
+      })
+      .filter((x) => !Number.isNaN(x[0]));
+  }
+
+  async _fetchHist(z) {
+    const h = (this._hist[z.slug] = this._hist[z.slug] || {});
+    if (h.loading) return;
+    h.loading = true;
+    try {
+      const end = new Date();
+      const start = new Date(end.getTime() - 24 * 3600 * 1000);
+      const res = await this._hass.callWS({
+        type: "history/history_during_period",
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        entity_ids: [z.e.temperature, z.e.status],
+        minimal_response: true,
+        no_attributes: true,
+        significant_changes_only: false,
+      });
+      h.temp = this._parseHist(res[z.e.temperature])
+        .map(([t, v]) => [t, parseFloat(v)])
+        .filter((x) => !Number.isNaN(x[1]));
+      h.status = this._parseHist(res[z.e.status]);
+      h.at = Date.now();
+      h.error = null;
+    } catch (err) {
+      h.error = String((err && err.message) || err);
+    }
+    h.loading = false;
+    this._render();
+  }
+
+  _graphHtml(z) {
+    const h = this._hist[z.slug];
+    if (!h || (h.loading && !h.temp)) return `<div class="panel"><span class="hint">Loading 24 h history…</span></div>`;
+    if (h.error) return `<div class="panel"><span class="hint">History unavailable: ${esc(h.error)}</span></div>`;
+    const now = Date.now();
+    const t0 = now - 24 * 3600 * 1000;
+    const pts = (h.temp || []).filter((p) => p[0] >= t0 - 3600 * 1000);
+    if (pts.length < 2) return `<div class="panel"><span class="hint">Not enough history yet.</span></div>`;
+    const target = num(this._state(z.e.target));
+    const vals = pts.map((p) => p[1]).concat(target === null ? [] : [target]);
+    let lo = Math.floor(Math.min(...vals) - 0.5);
+    let hi = Math.ceil(Math.max(...vals) + 0.5);
+    if (hi - lo < 3) hi = lo + 3;
+    const W = 320, H = 110, L = 26, R = 6, T = 6, B = 16;
+    const X = (t) => L + ((Math.max(t, t0) - t0) / (now - t0)) * (W - L - R);
+    const Y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+
+    // shaded runs: when the zone was heating / cooling
+    const st = h.status || [];
+    let bands = "";
+    for (let i = 0; i < st.length; i++) {
+      const [ta, sa] = st[i];
+      const tb = i + 1 < st.length ? st[i + 1][0] : now;
+      const kind = STATUS_KIND[sa];
+      if (!kind || tb <= t0) continue;
+      const cls = kind === "heat" ? "bh" : "bc";
+      bands += `<rect class="${cls}" x="${X(ta).toFixed(1)}" y="${T}" width="${Math.max(1, X(tb) - X(ta)).toFixed(1)}" height="${H - T - B}"/>`;
+    }
+    let grid = "";
+    for (let v = Math.ceil(lo); v <= hi; v += Math.ceil((hi - lo) / 5)) {
+      grid += `<line class="gl" x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/><text class="gt2" x="${L - 3}" y="${(Y(v) + 2.5).toFixed(1)}" text-anchor="end">${v}°</text>`;
+    }
+    let xl = "";
+    for (const hrs of [24, 18, 12, 6, 0]) {
+      const t = now - hrs * 3600 * 1000;
+      const lab = hrs === 0 ? "now" : new Date(t).toLocaleTimeString([], { hour: "numeric" });
+      xl += `<text class="gt2" x="${X(t).toFixed(1)}" y="${H - 3}" text-anchor="${hrs === 0 ? "end" : hrs === 24 ? "start" : "middle"}">${lab}</text>`;
+    }
+    let d = "";
+    pts.forEach(([t, v], i) => {
+      d += (i ? "L" : "M") + X(t).toFixed(1) + " " + Y(v).toFixed(1);
+    });
+    d += `L${X(now).toFixed(1)} ${Y(pts[pts.length - 1][1]).toFixed(1)}`;
+    const tl = target === null ? "" : `<line class="tl" x1="${L}" x2="${W - R}" y1="${Y(target).toFixed(1)}" y2="${Y(target).toFixed(1)}"/>`;
+    const mn = Math.min(...pts.map((p) => p[1])), mx = Math.max(...pts.map((p) => p[1]));
+    return `<div class="panel graph"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      ${bands}${grid}${tl}<path class="ln" d="${d}"/>${xl}</svg>
+      <div class="legend"><span>24 h: low ${fmt(mn)}° · high ${fmt(mx)}°</span>
+      <span><i class="k bc"></i>cooling <i class="k bh"></i>heating <i class="k tk"></i>target</span></div></div>`;
+  }
+
   _state(id) {
     return id && this._hass ? this._hass.states[id] : undefined;
   }
@@ -213,6 +305,10 @@ class HomeAirconCard extends HTMLElement {
         break;
       case "panel":
         u.panel = u.panel === val ? null : val;
+        if (u.panel === "graph") {
+          const hh = this._hist[slug];
+          if (!hh || !hh.at || Date.now() - hh.at > 300000) this._fetchHist(zone);
+        }
         if (val === "cool" || val === "heat") {
           const cur = num(this._state(zone.e.temperature));
           u.x = u.x !== null && u.panelKind === val ? u.x : val === "cool" ? Math.min(target, cur ?? target, 22) : Math.max(target, cur ?? target, 24);
@@ -299,6 +395,8 @@ class HomeAirconCard extends HTMLElement {
         ).join("")}
         <button class="go ${u.panel}" data-act="go" data-slug="${z.slug}">Start</button>
       </div>`;
+    } else if (u.panel === "graph") {
+      panel = this._graphHtml(z);
     } else if (u.panel === "settings") {
       panel = `<div class="panel"><span class="lbl">Deadband</span>
         <button class="step" data-act="deadband" data-slug="${z.slug}" data-val="-1">−</button>
@@ -347,6 +445,7 @@ class HomeAirconCard extends HTMLElement {
         <button class="chip cool ${u.panel === "cool" ? "on" : ""}" data-act="panel" data-slug="${z.slug}" data-val="cool">❄️ Cool to…</button>
         <button class="chip heat ${u.panel === "heat" ? "on" : ""}" data-act="panel" data-slug="${z.slug}" data-val="heat">🔥 Heat to…</button>
         ${progBtn}
+        <button class="chip ${u.panel === "graph" ? "on" : ""}" data-act="panel" data-slug="${z.slug}" data-val="graph">📈 24h</button>
         <button class="chip ${u.panel === "settings" ? "on" : ""}" data-act="panel" data-slug="${z.slug}" data-val="settings">⚙</button>
       </div>
       ${dampers}
@@ -366,6 +465,10 @@ class HomeAirconCard extends HTMLElement {
       zones.length || guards.length
         ? guards.map((g) => this._guardHtml(g)).join("") + zones.map((z) => this._zoneHtml(z)).join("")
         : `<div class="empty">No Home Aircon Driver zones found. Add one under Settings → Devices &amp; services.</div>`;
+    for (const z of zones) {
+      const hh = this._hist[z.slug];
+      if (this._u(z.slug).panel === "graph" && hh && hh.at && !hh.loading && Date.now() - hh.at > 300000) this._fetchHist(z);
+    }
     this.shadowRoot.innerHTML = `<style>${CSS}</style><ha-card>${title}<div class="wrap">${body}</div></ha-card>`;
   }
 }
@@ -413,6 +516,18 @@ const CSS = `
     border-radius:8px; background:var(--card-background-color); }
   .lbl { color:var(--secondary-text-color); } .gap { margin-left:6px; }
   .hint { color:var(--secondary-text-color); font-size:.8em; }
+  .panel.graph { display:block; }
+  .graph svg { width:100%; height:130px; display:block; }
+  .graph .ln { fill:none; stroke:var(--primary-text-color); stroke-width:1.4; vector-effect:non-scaling-stroke; }
+  .graph .gl { stroke:var(--divider-color); stroke-width:.5; vector-effect:non-scaling-stroke; }
+  .graph .tl { stroke:var(--secondary-text-color); stroke-width:1; stroke-dasharray:4 3; vector-effect:non-scaling-stroke; }
+  .graph .gt2 { fill:var(--secondary-text-color); font-size:8px; }
+  .graph .bc { fill:rgba(66,165,245,.28); } .graph .bh { fill:rgba(255,112,67,.30); }
+  .legend { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px; margin-top:4px;
+    color:var(--secondary-text-color); font-size:.8em; }
+  .k { display:inline-block; width:10px; height:10px; margin:0 3px 0 8px; border-radius:2px; vertical-align:-1px; }
+  .k.bc { background:rgba(66,165,245,.6); } .k.bh { background:rgba(255,112,67,.6); }
+  .k.tk { background:none; border-top:2px dashed var(--secondary-text-color); height:0; border-radius:0; }
   .go { margin-left:auto; padding:7px 18px; border-radius:16px; color:#fff; font-weight:500; }
   .go.cool { background:#42a5f5; } .go.heat { background:#ff7043; }
 `;
@@ -433,6 +548,8 @@ class HomeAirconCardEditor extends HTMLElement {
   }
   _draw() {
     if (!this._hass) return;
+    // hass can arrive before setConfig; never read config while undefined.
+    this._config = this._config || {};
     const { zones } = discover(this._hass);
     const chosen = new Set(this._config.zones || []);
     this.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">
