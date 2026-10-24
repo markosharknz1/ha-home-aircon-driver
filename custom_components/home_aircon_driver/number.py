@@ -44,14 +44,19 @@ class _ZoneNumber(AirconEntity, NumberEntity, RestoreEntity):
 class TargetNumber(_ZoneNumber):
     _attr_native_min_value = 10
     _attr_native_max_value = 32
-    _attr_native_step = 0.5
+    _attr_native_step = 1
     attr_name = "target"
 
     def __init__(self, ctrl: ZoneController) -> None:
         super().__init__(ctrl, "number", "target")
 
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # Whole degrees only: round any older saved half-degree value.
+        self.ctrl.target = float(round(self.ctrl.target))
+
     async def async_set_native_value(self, value: float) -> None:
-        await self.ctrl.async_set_target(value)
+        await self.ctrl.async_set_target(float(round(value)))
 
 
 class DeadbandNumber(_ZoneNumber):

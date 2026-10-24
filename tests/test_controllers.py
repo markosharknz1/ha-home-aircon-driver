@@ -340,3 +340,12 @@ def test_triggers_are_loop_safe_handlers_not_lambdas(monkeypatch):
     assert len(captured) == 4
     for action in captured:
         assert inspect.iscoroutinefunction(action) or getattr(action, "_hass_callback", False)
+
+
+def test_override_target_is_whole_degrees():
+    h = make_hass()
+    h.states.set("sensor.room", 25.0)
+    h.states.set("climate.ac", "off", dict(AC))
+    z = zone(h)
+    run(z.async_set_override("cool", 21.5, 60))
+    assert z.override["target"] == 22.0

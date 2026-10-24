@@ -103,16 +103,16 @@ def _guard_schema(hass, d: dict) -> vol.Schema:
             vol.Required(CONF_ZONES, default=d.get(CONF_ZONES, [])): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=zone_opts, multiple=True)
             ),
-            vol.Required(CONF_WARN, default=d.get(CONF_WARN, DEFAULT_WARN)): _num(15, 35, 0.1, "°C"),
-            vol.Required(CONF_CRITICAL, default=d.get(CONF_CRITICAL, DEFAULT_CRITICAL)): _num(15, 35, 0.1, "°C"),
+            vol.Required(CONF_WARN, default=d.get(CONF_WARN, DEFAULT_WARN)): _num(15, 35, 1, "°C"),
+            vol.Required(CONF_CRITICAL, default=d.get(CONF_CRITICAL, DEFAULT_CRITICAL)): _num(15, 35, 1, "°C"),
             vol.Required(CONF_WARN_SETPOINT, default=d.get(CONF_WARN_SETPOINT, DEFAULT_WARN_SETPOINT)): _num(
-                10, 30, 0.5, "°C"
+                10, 30, 1, "°C"
             ),
             vol.Required(
                 CONF_CRITICAL_SETPOINT, default=d.get(CONF_CRITICAL_SETPOINT, DEFAULT_CRITICAL_SETPOINT)
-            ): _num(10, 30, 0.5, "°C"),
+            ): _num(10, 30, 1, "°C"),
             vol.Required(CONF_HYSTERESIS, default=d.get(CONF_HYSTERESIS, DEFAULT_HYSTERESIS)): _num(
-                0.1, 3, 0.1, "°C"
+                1, 3, 1, "°C"
             ),
             vol.Required(CONF_STALE_MIN, default=d.get(CONF_STALE_MIN, DEFAULT_STALE_MIN)): _num(
                 5, 1440, 5, "min"
@@ -148,7 +148,7 @@ def _programs_schema(d: dict) -> vol.Schema:
             )
         )
         fields[vol.Optional(f"program{i}_target", default=d.get(f"program{i}_target", 21.0))] = _num(
-            10, 32, 0.5, "°C"
+            10, 32, 1, "°C"
         )
         fields[_opt(f"program{i}_months", d)] = selector.SelectSelector(
             selector.SelectSelectorConfig(

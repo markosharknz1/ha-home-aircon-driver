@@ -66,6 +66,7 @@ const num = (st) => {
   return Number.isNaN(v) ? null : v;
 };
 const fmt = (v) => (v === null ? "--" : v.toFixed(1));
+const fmt0 = (v) => (v === null || Number.isNaN(v) ? "--" : String(Math.round(v)));  // settings: whole degrees
 
 const fmtLeft = (ts) => {
   const ms = ts * 1000 - Date.now();
@@ -311,7 +312,7 @@ class HomeAirconCard extends HTMLElement {
         }
         if (val === "cool" || val === "heat") {
           const cur = num(this._state(zone.e.temperature));
-          u.x = u.x !== null && u.panelKind === val ? u.x : val === "cool" ? Math.min(target, cur ?? target, 22) : Math.max(target, cur ?? target, 24);
+          u.x = u.x !== null && u.panelKind === val ? u.x : Math.round(val === "cool" ? Math.min(target, cur ?? target, 22) : Math.max(target, cur ?? target, 24));
           u.panelKind = val;
         }
         this._render();
@@ -375,7 +376,7 @@ class HomeAirconCard extends HTMLElement {
     ).join("");
 
     const banner = ovOn
-      ? `<div class="ov ${ov.state}"><span>${ov.state === "cool" ? "❄️ Cooling" : "🔥 Heating"} to ${fmt(
+      ? `<div class="ov ${ov.state}"><span>${ov.state === "cool" ? "❄️ Cooling" : "🔥 Heating"} to ${fmt0(
           parseFloat(ov.attributes.target)
         )}° · ${fmtLeft(ov.attributes.until_ts)} left</span>
          <button class="chip" data-act="cancel" data-slug="${z.slug}">Cancel</button></div>`
@@ -385,9 +386,9 @@ class HomeAirconCard extends HTMLElement {
     if (u.panel === "cool" || u.panel === "heat") {
       panel = `<div class="panel">
         <span class="lbl">${u.panel === "cool" ? "Cool" : "Heat"} to</span>
-        <button class="step" data-act="x" data-slug="${z.slug}" data-val="-0.5">−</button>
-        <b class="val">${fmt(u.x)}°</b>
-        <button class="step" data-act="x" data-slug="${z.slug}" data-val="0.5">+</button>
+        <button class="step" data-act="x" data-slug="${z.slug}" data-val="-1">−</button>
+        <b class="val">${fmt0(u.x)}°</b>
+        <button class="step" data-act="x" data-slug="${z.slug}" data-val="1">+</button>
         <span class="lbl gap">for up to</span>
         ${DURATIONS.map(
           ([m, l]) =>
@@ -410,7 +411,7 @@ class HomeAirconCard extends HTMLElement {
     const pSw = this._state("switch." + z.slug + "_programs");
     const until = prog && prog.next_event ? new Date(prog.next_event).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
     const progLine = prog
-      ? `<div class="prog">📅 Program: ${esc(prog.mode)} ${fmt(parseFloat(prog.target))}°${until ? " until " + until : ""}</div>`
+      ? `<div class="prog">📅 Program: ${esc(prog.mode)} ${fmt0(parseFloat(prog.target))}°${until ? " until " + until : ""}</div>`
       : "";
     const progBtn = pSw
       ? `<button class="chip ${pSw.state === "on" ? "on" : ""}" data-act="programs" data-slug="${z.slug}" data-ent="switch.${z.slug}_programs">📅 Programs ${pSw.state === "on" ? "on" : "off"}</button>`
@@ -436,9 +437,9 @@ class HomeAirconCard extends HTMLElement {
       <div class="ctl">
         <div class="segs">${modes}</div>
         <div class="tgt">
-          <button class="step" data-act="target" data-slug="${z.slug}" data-val="-0.5">−</button>
-          <b class="val" title="Target">${fmt(target)}°</b>
-          <button class="step" data-act="target" data-slug="${z.slug}" data-val="0.5">+</button>
+          <button class="step" data-act="target" data-slug="${z.slug}" data-val="-1">−</button>
+          <b class="val" title="Target">${fmt0(target)}°</b>
+          <button class="step" data-act="target" data-slug="${z.slug}" data-val="1">+</button>
         </div>
       </div>
       <div class="acts">

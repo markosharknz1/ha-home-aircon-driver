@@ -268,7 +268,7 @@ class ZoneController(_Base):
         if kind not in (ACT_COOL, ACT_HEAT):
             raise ValueError("override kind must be 'cool' or 'heat'")
         cap = DEFAULT_OVERRIDE_MINUTES if not minutes else float(minutes)
-        self.override = {"kind": kind, "target": float(target), "until": time.time() + cap * 60}
+        self.override = {"kind": kind, "target": float(round(target)), "until": time.time() + cap * 60}
         self._last_cmd.clear()
         await self.async_evaluate()
 

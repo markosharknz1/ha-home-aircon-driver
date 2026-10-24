@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 _LOGGER = logging.getLogger(__name__)
 
 CARD_URL = "/home_aircon_driver/home-aircon-card.js"
-CARD_VERSION = "0.6.0"  # bump to bust the browser cache when the card changes
+CARD_VERSION = "0.7.0"  # bump to bust the browser cache when the card changes
 
 _CARD_REGISTERED_KEY = "home_aircon_card_registered"
 
