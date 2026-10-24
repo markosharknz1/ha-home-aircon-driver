@@ -282,18 +282,20 @@ def test_quiet_sensor_gets_one_refresh_request_per_window():
     h = make_hass()
     h.states.set("sensor.room", 22.0, age_s=20 * 60)  # past half of 30 min
     h.states.set("climate.ac", "off", dict(AC))
-    z = zone(h)
+    z = zone(h, poll_quiet_sensors=True)
     run(z.async_evaluate())
     run(z.async_evaluate())
     upd = [c for c in h.services.calls if c[1] == "update_entity"]
     assert len(upd) == 1 and upd[0][2]["entity_id"] == "sensor.room"
 
 
-def test_refresh_can_be_switched_off():
+def test_polling_is_off_by_default():
+    """update_entity re-writes a cached value on non-polling sensors (Zigbee),
+    which would hide a dead sensor. It must be opt-in."""
     h = make_hass()
     h.states.set("sensor.room", 22.0, age_s=20 * 60)
     h.states.set("climate.ac", "off", dict(AC))
-    z = zone(h, refresh_quiet_sensors=False)
+    z = zone(h)
     run(z.async_evaluate())
     assert not [c for c in h.services.calls if c[1] == "update_entity"]
 

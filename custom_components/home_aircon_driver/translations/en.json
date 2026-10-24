@@ -33,7 +33,7 @@
           "coolers": "Cooler / fan switches",
           "sensor_max_age_min": "Default: treat a sensor as silent after (minutes)",
           "dampers": "Zone dampers (e.g. AirTouch zone fans, optional)",
-          "refresh_quiet_sensors": "Ask Home Assistant to refresh a sensor that goes quiet"
+          "poll_quiet_sensors": "Poll quiet sensors (ONLY for cloud/polled sensors; leave OFF for Zigbee - it can hide a dead sensor)"
         }
       },
       "guard_hw": {
@@ -49,7 +49,7 @@
           "hysteresis": "Release margin (stay tripped until this far below)",
           "stale_min": "Treat tank sensors as silent after (minutes)",
           "notify_service": "Notify service (optional, e.g. notify.mobile_app_phone)",
-          "refresh_quiet_sensors": "Ask Home Assistant to refresh a sensor that goes quiet"
+          "poll_quiet_sensors": "Poll quiet sensors (ONLY for cloud/polled sensors; leave OFF for Zigbee - it can hide a dead sensor)"
         }
       }
     },
@@ -90,7 +90,7 @@
           "stale_min": "Treat tank sensors as silent after (minutes)",
           "notify_service": "Notify service (optional)",
           "dampers": "Zone dampers (e.g. AirTouch zone fans, optional)",
-          "refresh_quiet_sensors": "Ask Home Assistant to refresh a sensor that goes quiet"
+          "poll_quiet_sensors": "Poll quiet sensors (ONLY for cloud/polled sensors; leave OFF for Zigbee - it can hide a dead sensor)"
         }
       },
       "programs": {

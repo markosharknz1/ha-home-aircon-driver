@@ -126,7 +126,7 @@ class _Base:
         that poll or need a nudge; sleepy Zigbee devices simply ignore it."""
         limits = self._limits_s(ids, default_min)
         readings = read_sensors(self.hass, ids, limits)
-        if self.cfg.get(CONF_REFRESH, True):
+        if self.cfg.get(CONF_REFRESH, False):
             now = time.time()
             for eid, (val, seen, limit) in zip(ids, readings):
                 st = self.hass.states.get(eid)

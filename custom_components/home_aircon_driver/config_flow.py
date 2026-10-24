@@ -86,7 +86,7 @@ def _zone_schema(d: dict) -> vol.Schema:
             vol.Required(
                 CONF_SENSOR_MAX_AGE, default=d.get(CONF_SENSOR_MAX_AGE, DEFAULT_SENSOR_MAX_AGE)
             ): _num(5, 1440, 5, "min"),
-            vol.Required(CONF_REFRESH, default=d.get(CONF_REFRESH, True)): selector.BooleanSelector(),
+            vol.Required(CONF_REFRESH, default=d.get(CONF_REFRESH, False)): selector.BooleanSelector(),
         }
     )
 
@@ -117,7 +117,7 @@ def _guard_schema(hass, d: dict) -> vol.Schema:
             vol.Required(CONF_STALE_MIN, default=d.get(CONF_STALE_MIN, DEFAULT_STALE_MIN)): _num(
                 5, 1440, 5, "min"
             ),
-            vol.Required(CONF_REFRESH, default=d.get(CONF_REFRESH, True)): selector.BooleanSelector(),
+            vol.Required(CONF_REFRESH, default=d.get(CONF_REFRESH, False)): selector.BooleanSelector(),
             _opt(CONF_NOTIFY, d): selector.TextSelector(),
         }
     )
