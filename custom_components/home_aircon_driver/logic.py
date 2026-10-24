@@ -140,11 +140,13 @@ def decide(
 ) -> str:
     """Thermostat decision with hysteresis.
 
-    Start heating/cooling at target -/+ deadband/2; once running, continue
-    until the target itself is reached (so it does not flap at the edge).
+    The deadband is the full distance from the target: cooling starts at
+    target + deadband and heating at target - deadband (target 23, deadband 3
+    -> cools from 26, heats from 20). Once running, it continues until the
+    target itself is reached, so it does not flap at the edge.
     mode: "off" | "heat" | "cool" | "auto".
     """
-    half = deadband / 2.0
+    half = deadband
     if mode in ("heat", "auto"):
         if temp <= target - half:
             return ACT_HEAT

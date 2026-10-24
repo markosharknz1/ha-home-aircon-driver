@@ -54,18 +54,29 @@ def test_guard_rising_rate_warns_early():
 
 
 def test_decide_hysteresis():
+    """Deadband is the FULL distance from the target."""
     d = logic.decide
-    assert d(19.4, 20, 1.0, "heat") == "heat"
-    assert d(19.8, 20, 1.0, "heat") == "idle"            # inside band, idle
-    assert d(19.8, 20, 1.0, "heat", "heat") == "heat"    # keeps heating to target
+    assert d(18.9, 20, 1.0, "heat") == "heat"            # starts below target - deadband
+    assert d(19.5, 20, 1.0, "heat") == "idle"            # inside the band: stays idle
+    assert d(19.5, 20, 1.0, "heat", "heat") == "heat"    # but keeps heating to the target
     assert d(20.0, 20, 1.0, "heat", "heat") == "idle"
-    assert d(24.6, 24, 1.0, "cool") == "cool"
-    assert d(24.2, 24, 1.0, "cool", "cool") == "cool"
+    assert d(25.1, 24, 1.0, "cool") == "cool"            # starts above target + deadband
+    assert d(24.5, 24, 1.0, "cool") == "idle"
+    assert d(24.5, 24, 1.0, "cool", "cool") == "cool"
     assert d(24.0, 24, 1.0, "cool", "cool") == "idle"
     assert d(10, 24, 1.0, "off") == "idle"
     assert d(30, 24, 1.0, "heat") == "idle"
     assert d(30, 24, 1.0, "auto") == "cool"
     assert d(10, 24, 1.0, "auto") == "heat"
+
+
+def test_decide_example_target_23_deadband_3():
+    d = logic.decide
+    assert d(25.9, 23, 3, "cool") == "idle"
+    assert d(26.0, 23, 3, "cool") == "cool"              # starts at 26
+    assert d(24.0, 23, 3, "cool", "cool") == "cool"      # keeps going down to 23
+    assert d(23.0, 23, 3, "cool", "cool") == "idle"      # stops at the target
+    assert d(20.0, 23, 3, "heat") == "heat"              # heating mirrors it: 20 -> 23
 
 
 def test_corrected_setpoint():

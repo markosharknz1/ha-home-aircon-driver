@@ -403,7 +403,7 @@ class HomeAirconCard extends HTMLElement {
         <button class="step" data-act="deadband" data-slug="${z.slug}" data-val="-1">−</button>
         <b class="val">${db.toFixed(0)}°</b>
         <button class="step" data-act="deadband" data-slug="${z.slug}" data-val="1">+</button>
-        <span class="hint">starts at target ± half this, runs until target</span></div>`;
+        <span class="hint">Cool above ${fmt0(target + db)}° · Heat below ${fmt0(target - db)}° · runs until ${fmt0(target)}°</span></div>`;
     }
 
     const stSt = this._state(z.e.status);

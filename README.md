@@ -34,6 +34,13 @@ target as a dashed line, and shaded bands where the zone was cooling (blue) or h
 (orange). It reads Home Assistant's recorder history, so it needs the default
 `recorder` (on by default).
 
+## Target and deadband
+
+The **deadband** is the full distance from the target, in whole degrees. Target 23°,
+deadband 3° -> cooling starts at 26° and runs down to 23°; heating starts at 20° and
+runs up to 23°. Auto mode does both. A smaller deadband holds the room tighter but
+cycles the unit more often.
+
 ## Scheduled programs (winter heating, summer cooling)
 
 Create weekly time blocks with HA's own **Schedule helper** (Settings → Devices &
