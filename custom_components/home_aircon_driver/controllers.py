@@ -66,11 +66,16 @@ from .logic import (
     override_reached,
     pick_program,
     programs_from_options,
+    PROBLEM_NO_RESPONSE,
+    classify_input,
 )
 
 _LOGGER = logging.getLogger(__name__)
 RESEND_AFTER_S = 300
 REFRESH_EVERY_S = 600
+HEALTH_GRACE_S = 120      # unavailable this long before it counts as a dropout (restarts flicker)
+NO_RESPONSE_S = 180       # a unit that has not obeyed a command after this long
+RENOTIFY_S = 6 * 3600     # remind about a dropout that is still ongoing
 SimpleState = type("SimpleState", (), {"state": "off"})()
 DEFAULT_OVERRIDE_MINUTES = 180
 
@@ -113,6 +118,10 @@ class _Base:
         self._listeners: list[Callable[[], None]] = []
         self._unsubs: list[Callable[[], None]] = []
         self._last_refresh: dict[str, float] = {}
+        # dropout detection
+        self.problems: list[dict] = []
+        self._first_seen: dict[tuple, float] = {}
+        self._notified: dict[tuple, tuple[float, dict]] = {}
 
     def _limits_s(self, ids: list[str], default_min: float) -> dict[str, float]:
         """Per-sensor 'treat as silent after' (seconds): the sensor's own
@@ -148,6 +157,97 @@ class _Base:
     async def _on_tick(self, _now) -> None:
         await self.async_evaluate()
 
+    # ---- dropout detection -------------------------------------------------
+    def _friendly(self, eid: str) -> str:
+        st = self.hass.states.get(eid)
+        return (st.attributes.get("friendly_name") if st else None) or eid
+
+    def _input_problems(self, ids: list[str], default_min: float, now: float) -> list[dict]:
+        """Sensors that are unavailable, missing, or silent past their limit."""
+        out = []
+        limits = self._limits_s(ids, default_min)
+        for eid in ids:
+            st = self.hass.states.get(eid)
+            seen = None
+            if st is not None:
+                ls = getattr(st, "last_reported", None) or st.last_updated
+                seen = ls.timestamp()
+            kind = classify_input(None if st is None else st.state, seen, now, limits[eid])
+            if kind:
+                out.append({"entity": eid, "name": self._friendly(eid), "role": "sensor", "kind": kind,
+                            "detail": None if seen is None else int((now - seen) // 60)})
+        return out
+
+    def _output_problems(self, ids: list[str], now: float) -> list[dict]:
+        out = []
+        for eid in ids:
+            st = self.hass.states.get(eid)
+            kind = classify_input(None if st is None else st.state, None, now, None)
+            if kind:
+                out.append({"entity": eid, "name": self._friendly(eid), "role": "output",
+                            "kind": kind, "detail": None})
+        return out
+
+    def _health_candidates(self, now: float) -> list[dict]:
+        return []
+
+    async def _safe_health(self) -> None:
+        try:
+            now = time.time()
+            await self._update_health(self._health_candidates(now), now)
+        except Exception:  # noqa: BLE001 - monitoring must never break control
+            _LOGGER.exception("%s: dropout check failed", self.slug)
+
+    async def _update_health(self, candidates: list[dict], now: float) -> None:
+        """Debounce (restarts make entities flicker), publish `problems`, and
+        notify once when a dropout is confirmed, on a 6 h reminder, and on recovery."""
+        seen_keys = set()
+        confirmed: list[dict] = []
+        for p in candidates:
+            key = (p["entity"], p["kind"])
+            seen_keys.add(key)
+            first = self._first_seen.setdefault(key, now)
+            grace = 0 if p["kind"] in ("silent", "no_response") else HEALTH_GRACE_S
+            if now - first >= grace:
+                p["since"] = first
+                confirmed.append(p)
+        for key in [k for k in self._first_seen if k not in seen_keys]:
+            del self._first_seen[key]
+        self.problems = confirmed
+
+        title = self.entry.title
+        for p in confirmed:
+            key = (p["entity"], p["kind"])
+            last = self._notified.get(key)
+            if last is None or now - last[0] >= RENOTIFY_S:
+                self._notified[key] = (now, p)
+                await self._send(f"Dropout: {title}", f"{p['name']} {self._describe(p)}")
+        for key in [k for k in self._notified if k not in seen_keys]:
+            _, p = self._notified.pop(key)
+            await self._send(f"Recovered: {title}", f"{p['name']} is back")
+
+    @staticmethod
+    def _describe(p: dict) -> str:
+        silent = (
+            f"has not reported for {p['detail']} min" if p.get("detail") is not None else "has stopped reporting"
+        )
+        return {
+            "unavailable": "is unavailable",
+            "missing": "no longer exists in Home Assistant",
+            "silent": silent,
+            "no_response": f"did not respond ({p.get('detail')})",
+        }.get(p["kind"], p["kind"])
+
+    async def _send(self, title: str, message: str) -> None:
+        svc = (self.cfg.get(CONF_NOTIFY) or "").strip()
+        if not svc or "." not in svc:
+            return
+        domain, name = svc.split(".", 1)
+        try:
+            await self.hass.services.async_call(domain, name, {"title": title, "message": message}, blocking=False)
+        except Exception:  # noqa: BLE001 - a bad notify target must never break control
+            _LOGGER.exception("%s: notification via %s failed", self.slug, svc)
+
     @callback
     def async_add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
         self._listeners.append(cb)
@@ -181,6 +281,7 @@ class ZoneController(_Base):
         # guard entry_id -> (level, warn_setpoint, critical_setpoint)
         self._guards: dict[str, tuple[int, float, float]] = {}
         self._last_cmd: dict[str, tuple[str, float, float]] = {}
+        self._expect: dict[str, tuple[str, float]] = {}  # eid -> (mode asked for, first asked at)
         # Active one-shot "cool to X" / "heat to X": kind, target, until (epoch s)
         self.override: dict | None = None
         # Ducted systems (e.g. AirTouch): zone-damper fans + their on/off
@@ -297,6 +398,23 @@ class ZoneController(_Base):
         if self._guards.pop(guard_id, None) is not None:
             await self.async_evaluate()
 
+    def _health_candidates(self, now: float) -> list[dict]:
+        default_min = float(self.cfg.get(CONF_SENSOR_MAX_AGE, DEFAULT_SENSOR_MAX_AGE))
+        out = self._input_problems(self.sensors, default_min, now)
+        out += self._output_problems(self.climates + self.heaters + self.coolers + self.dampers, now)
+        # A unit that was told to change mode but has not, after NO_RESPONSE_S.
+        for eid, (want, since) in list(self._expect.items()):
+            st = self.hass.states.get(eid)
+            if st is not None and st.state == want:
+                self._expect.pop(eid, None)
+                continue
+            if st is None or st.state in ("unavailable", "unknown"):
+                continue  # already reported as unavailable
+            if now - since >= NO_RESPONSE_S:
+                out.append({"entity": eid, "name": self._friendly(eid), "role": "output",
+                            "kind": PROBLEM_NO_RESPONSE, "detail": f"asked for {want}, still {st.state}"})
+        return out
+
     # ---- the loop ----
     async def _zone_temperature(self, now: float) -> tuple[float | None, str]:
         default_min = float(self.cfg.get(CONF_SENSOR_MAX_AGE, DEFAULT_SENSOR_MAX_AGE))
@@ -324,6 +442,7 @@ class ZoneController(_Base):
         except Exception as err:  # noqa: BLE001
             self.last_error = f"{type(err).__name__}: {err}"
             _LOGGER.exception("Zone %s: evaluation failed", self.slug)
+        await self._safe_health()
         self._notify()
 
     async def _evaluate(self) -> None:
@@ -452,10 +571,13 @@ class ZoneController(_Base):
         now = time.time()
         if in_sync:
             self._last_cmd[eid] = (want, setpoint, now)
+            self._expect.pop(eid, None)
             return
         if last and last[0] == want and abs(last[1] - setpoint) < 0.1 and now - last[2] < RESEND_AFTER_S:
             return  # already asked recently; give the unit time to respond
         self._last_cmd[eid] = (want, setpoint, now)
+        if st.state != want and self._expect.get(eid, (None,))[0] != want:
+            self._expect[eid] = (want, now)  # start the response clock
 
         if st.state != want:
             await self.hass.services.async_call(
@@ -518,6 +640,10 @@ class GuardController(_Base):
         )
         self.hass.async_create_task(self.async_evaluate())
 
+    def _health_candidates(self, now: float) -> list[dict]:
+        default_min = float(self.cfg.get(CONF_STALE_MIN, DEFAULT_STALE_MIN))
+        return self._input_problems(self.tank_sensors, default_min, now)
+
     def _zones(self) -> list[ZoneController]:
         found = []
         for zid in self.zone_ids:
@@ -532,6 +658,7 @@ class GuardController(_Base):
         except Exception as err:  # noqa: BLE001
             self.last_error = f"{type(err).__name__}: {err}"
             _LOGGER.exception("Guard %s: evaluation failed", self.slug)
+        await self._safe_health()
         self._notify()
 
     async def _evaluate(self) -> None:

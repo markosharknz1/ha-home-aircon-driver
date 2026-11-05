@@ -34,6 +34,23 @@ target as a dashed line, and shaded bands where the zone was cooling (blue) or h
 (orange). It reads Home Assistant's recorder history, so it needs the default
 `recorder` (on by default).
 
+## Dropout detection
+
+Every zone and tank guard watches what it depends on and raises a **Dropout** problem
+sensor (`binary_sensor.<name>_dropout`) with the details:
+
+- a **sensor** that is unavailable, missing, or silent past its limit (per-sensor limits apply);
+- an **aircon unit, switch or damper** that is unavailable or missing;
+- a **unit that ignores a command**: told to change mode but still not there after 3 minutes.
+
+An entity must be gone for 2 minutes before it counts (restarts make entities flicker);
+silent sensors and ignored commands are reported straight away. The card shows a red
+line per dropout under the zone or guard. Set the **Notify service** (e.g.
+`notify.mobile_app_phone`) on the zone or guard to get one message when something drops
+out, a reminder every 6 hours while it stays down, and one when it is back.
+Home Assistant cannot tell you that Home Assistant itself is down (as happens when the
+host stops): use an external check for that.
+
 ## Target and deadband
 
 The **deadband** is the full distance from the target, in whole degrees. Target 23°,

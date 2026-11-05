@@ -215,3 +215,31 @@ def pick_program(programs: list[dict], schedule_on: dict[str, bool], month: int)
         if schedule_on.get(p["schedule"]) and (not p["months"] or month in p["months"]):
             return p
     return None
+
+
+# ---- dropout detection ------------------------------------------------------
+PROBLEM_UNAVAILABLE = "unavailable"  # entity reports unavailable/unknown
+PROBLEM_SILENT = "silent"            # numeric sensor alive but not reporting past its limit
+PROBLEM_MISSING = "missing"          # entity no longer exists in Home Assistant
+PROBLEM_NO_RESPONSE = "no_response"  # unit ignored a command we sent
+
+
+def classify_input(
+    state: str | None,
+    last_seen: float | None,
+    now: float,
+    limit_s: float | None = None,
+) -> str | None:
+    """Why an input/output counts as dropped out, or None if it is healthy.
+
+    state is the raw HA state string (None if the entity does not exist).
+    limit_s only applies to sensors that should report regularly; outputs
+    (climates, switches, dampers) pass None and are judged on availability.
+    """
+    if state is None:
+        return PROBLEM_MISSING
+    if state in ("unavailable", "unknown"):
+        return PROBLEM_UNAVAILABLE
+    if limit_s is not None and last_seen is not None and (now - last_seen) > limit_s:
+        return PROBLEM_SILENT
+    return None

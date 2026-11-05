@@ -21,10 +21,11 @@
 
 const ZONE_SUFFIXES = {
   sensor: ["temperature", "status", "override"],
+  binary_sensor: ["dropout"],
   select: ["mode"],
   number: ["target", "deadband"],
 };
-const GUARD_SUFFIXES = { sensor: ["level", "hottest"] };
+const GUARD_SUFFIXES = { sensor: ["level", "hottest"], binary_sensor: ["dropout"] };
 const MODES = [
   ["off", "Off"],
   ["heat", "Heat"],
@@ -142,7 +143,7 @@ class HomeAirconCard extends HTMLElement {
       .flatMap((i) => Object.values(i.e))
       .map((id) => {
         const s = hass.states[id];
-        return s ? s.state + JSON.stringify(s.attributes.until_ts || "") : "-";
+        return s ? s.state + JSON.stringify(s.attributes.until_ts || "") + (s.attributes.problems ? JSON.stringify(s.attributes.problems.map((p) => p.entity + p.kind)) : "") : "-";
       })
       .join("|");
     const dsig = zones
@@ -341,6 +342,22 @@ class HomeAirconCard extends HTMLElement {
     }
   }
 
+  _dropHtml(item) {
+    const st = this._state(item.e.dropout);
+    const probs = (st && st.state === "on" && st.attributes.problems) || [];
+    if (!probs.length) return "";
+    const phrase = (p) =>
+      ({
+        unavailable: "is unavailable",
+        missing: "no longer exists",
+        silent: p.detail !== null && p.detail !== undefined ? `has not reported for ${p.detail} min` : "has stopped reporting",
+        no_response: `is not responding (${p.detail || "command ignored"})`,
+      })[p.kind] || p.kind;
+    return `<div class="drop">${probs
+      .map((p) => `<div>⚠️ <b>${esc(p.name)}</b> ${esc(phrase(p))}</div>`)
+      .join("")}</div>`;
+  }
+
   _guardHtml(g) {
     const lvl = this._state(g.e.level);
     const hot = num(this._state(g.e.hottest));
@@ -355,7 +372,7 @@ class HomeAirconCard extends HTMLElement {
           ? `Tank warning - ${fmt(hot)}°`
           : `Tanks OK - ${fmt(hot)}°`;
     return `<div class="guard ${esc(level)}"><span class="gi">${level === "ok" ? "🐟" : "⚠️"}</span>
-      <b>${esc(g.name)}</b><span class="gt">${esc(text)}</span></div>`;
+      <b>${esc(g.name)}</b><span class="gt">${esc(text)}</span></div>${this._dropHtml(g)}`;
   }
 
   _zoneHtml(z) {
@@ -432,6 +449,7 @@ class HomeAirconCard extends HTMLElement {
         <span class="temp">${fmt(temp)}°</span>
         <span class="status ${kind}">${esc(STATUS_TEXT[status] || status)}</span>
       </div>
+      ${this._dropHtml(z)}
       ${banner}
       ${progLine}
       <div class="ctl">
@@ -499,6 +517,8 @@ const CSS = `
   .status.warn { background:#ffa726; color:#000; } .status.crit { background:#ef5350; color:#fff; }
   .ov { display:flex; align-items:center; justify-content:space-between; margin-top:8px;
     padding:6px 10px; border-radius:8px; background:rgba(66,165,245,.2); }
+  .drop { margin-top:8px; padding:6px 10px; border-radius:8px; background:rgba(244,67,54,.18);
+    color:var(--primary-text-color); font-size:.9em; }
   .prog { margin-top:6px; color:var(--secondary-text-color); font-size:.9em; }
   .ov.heat { background:rgba(255,112,67,.22); }
   .ctl { display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap; }

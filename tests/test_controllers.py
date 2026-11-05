@@ -349,3 +349,99 @@ def test_override_target_is_whole_degrees():
     z = zone(h)
     run(z.async_set_override("cool", 21.5, 60))
     assert z.override["target"] == 22.0
+
+
+def _notifs(h):
+    return [c for c in h.services.calls if c[0] == "notify"]
+
+
+def _age_problem(z, eid, kind, secs):
+    z._first_seen[(eid, kind)] -= secs
+
+
+def test_unavailable_sensor_is_a_dropout_after_grace_and_notifies_once():
+    h = make_hass()
+    h.states.set("sensor.room", "unavailable")
+    h.states.set("climate.ac", "off", dict(AC))
+    z = zone(h, notify_service="notify.phone")
+    run(z.async_evaluate())
+    assert z.problems == []                      # inside the grace period (restart flicker)
+    _age_problem(z, "sensor.room", "unavailable", 200)
+    run(z.async_evaluate())
+    assert [p["kind"] for p in z.problems] == ["unavailable"]
+    assert len(_notifs(h)) == 1 and "is unavailable" in _notifs(h)[0][2]["message"]
+    run(z.async_evaluate())
+    assert len(_notifs(h)) == 1                  # no spam while it stays down
+    h.states.set("sensor.room", 22.0)
+    run(z.async_evaluate())
+    assert z.problems == []
+    assert len(_notifs(h)) == 2 and "is back" in _notifs(h)[1][2]["message"]
+
+
+def test_brief_flicker_is_not_reported():
+    h = make_hass()
+    h.states.set("sensor.room", "unavailable")
+    h.states.set("climate.ac", "off", dict(AC))
+    z = zone(h, notify_service="notify.phone")
+    run(z.async_evaluate())
+    h.states.set("sensor.room", 22.0)            # back before the grace period ends
+    run(z.async_evaluate())
+    assert z.problems == [] and _notifs(h) == []
+
+
+def test_silent_sensor_is_a_dropout_immediately():
+    h = make_hass()
+    h.states.set("sensor.room", 22.0, age_s=99999)
+    h.states.set("climate.ac", "off", dict(AC))
+    z = zone(h, notify_service="notify.phone")
+    run(z.async_evaluate())
+    assert [p["kind"] for p in z.problems] == ["silent"]
+
+
+def test_unavailable_aircon_unit_is_a_dropout():
+    h = make_hass()
+    h.states.set("sensor.room", 22.0)
+    h.states.set("climate.ac", "unavailable", {})
+    z = zone(h)
+    run(z.async_evaluate())
+    _age_problem(z, "climate.ac", "unavailable", 200)
+    run(z.async_evaluate())
+    p = z.problems[0]
+    assert p["entity"] == "climate.ac" and p["role"] == "output"
+
+
+def test_unit_that_ignores_a_command_is_flagged():
+    h = make_hass()
+    h.states.set("sensor.room", 27.0)
+    h.states.set("climate.ac", "off", dict(AC))   # fake never changes state
+    z = zone(h)
+    z.mode, z.target = "cool", 22.0
+    run(z.async_evaluate())
+    assert "climate.ac" in z._expect
+    assert z.problems == []                      # not yet: give it time
+    want, since = z._expect["climate.ac"]
+    z._expect["climate.ac"] = (want, since - 400)
+    run(z.async_evaluate())
+    assert [p["kind"] for p in z.problems] == ["no_response"]
+    h.states.set("climate.ac", "cool", {**AC, "temperature": 19.0})
+    run(z.async_evaluate())
+    assert z.problems == [] and "climate.ac" not in z._expect
+
+
+def test_guard_flags_a_dropped_tank_sensor():
+    h = make_hass()
+    g = GuardController(
+        h,
+        SimpleNamespace(
+            entry_id="g1",
+            title="Reef",
+            data={"kind": "guard", "slug": "reef"},
+            options={"tank_sensors": ["sensor.tank"], "zones": [], "notify_service": "notify.phone"},
+        ),
+    )
+    h.states.set("sensor.tank", "unavailable")
+    run(g.async_evaluate())
+    _age_problem(g, "sensor.tank", "unavailable", 200)
+    run(g.async_evaluate())
+    assert g.problems and g.problems[0]["entity"] == "sensor.tank"
+    assert any("Dropout" in c[2]["title"] for c in _notifs(h))

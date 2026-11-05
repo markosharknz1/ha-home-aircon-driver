@@ -83,6 +83,7 @@ def _zone_schema(d: dict) -> vol.Schema:
             _opt(CONF_HEATERS, d): SWITCHES,
             _opt(CONF_COOLERS, d): SWITCHES,
             _opt(CONF_DAMPERS, d): FANS,
+            _opt(CONF_NOTIFY, d): selector.TextSelector(),
             vol.Required(
                 CONF_SENSOR_MAX_AGE, default=d.get(CONF_SENSOR_MAX_AGE, DEFAULT_SENSOR_MAX_AGE)
             ): _num(5, 1440, 5, "min"),

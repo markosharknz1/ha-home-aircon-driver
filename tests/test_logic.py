@@ -99,3 +99,13 @@ def test_programs_from_options_and_pick():
     assert logic.pick_program(progs, on, 7)["mode"] == "heat"      # winter: slot 1 wins
     assert logic.pick_program(progs, on, 1)["mode"] == "cool"      # summer: slot 1 out of season
     assert logic.pick_program(progs, {"schedule.winter_am": False}, 7) is None
+
+
+def test_classify_input():
+    c = logic.classify_input
+    assert c(None, None, 100) == "missing"
+    assert c("unavailable", 90, 100) == "unavailable"
+    assert c("unknown", 90, 100) == "unavailable"
+    assert c("23.4", 90, 100, limit_s=60) is None
+    assert c("23.4", 10, 100, limit_s=60) == "silent"
+    assert c("on", None, 100) is None            # outputs: availability only

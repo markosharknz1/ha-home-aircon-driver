@@ -33,7 +33,8 @@
           "coolers": "Cooler / fan switches",
           "sensor_max_age_min": "Default: treat a sensor as silent after (minutes)",
           "dampers": "Zone dampers (e.g. AirTouch zone fans, optional)",
-          "poll_quiet_sensors": "Poll quiet sensors (ONLY for cloud/polled sensors; leave OFF for Zigbee - it can hide a dead sensor)"
+          "poll_quiet_sensors": "Poll quiet sensors (ONLY for cloud/polled sensors; leave OFF for Zigbee - it can hide a dead sensor)",
+          "notify_service": "Notify service for dropouts (optional, e.g. notify.mobile_app_phone)"
         }
       },
       "guard_hw": {
@@ -178,6 +179,11 @@
     "switch": {
       "programs": {
         "name": "Programs"
+      }
+    },
+    "binary_sensor": {
+      "dropout": {
+        "name": "Dropout"
       }
     }
   },
