@@ -1,3 +1,5 @@
+<p align="center"><img src="custom_components/home_aircon_driver/brand/logo.png" width="140" alt="Home Aircon Driver"></p>
+
 # Home Aircon Driver
 
 Home Assistant integration (HACS) that drives house heating and cooling from
