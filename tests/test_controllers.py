@@ -482,3 +482,57 @@ def test_guard_raises_cannot_cool_when_protected_zone_has_no_working_unit():
     kinds = [p["kind"] for p in g.problems]
     assert "cannot_cool" in kinds            # immediate, no grace period
     assert any("no working aircon" in c[2]["message"] for c in h.services.calls if c[0] == "notify")
+
+
+def _thermostat(z):
+    from custom_components.home_aircon_driver.climate import ZoneThermostat
+    return ZoneThermostat(z)
+
+
+def test_thermostat_shows_zone_temperature_and_driver_target():
+    from homeassistant.components.climate import HVACAction, HVACMode
+    h = make_hass()
+    h.states.set("sensor.room", 25.9)
+    h.states.set("climate.ac", "off", dict(AC))
+    z = zone(h)
+    z.mode, z.target = "cool", 22.0
+    run(z.async_evaluate())
+    t = _thermostat(z)
+    assert t.current_temperature == 25.9          # the zone sensor, not the unit
+    assert t.target_temperature == 22.0           # the driver target, not the unit setpoint
+    assert t.hvac_mode == HVACMode.COOL
+    assert t.hvac_action == HVACAction.COOLING
+    assert t.entity_id == "climate.lounge_thermostat"
+
+
+def test_thermostat_controls_the_zone():
+    from homeassistant.components.climate import HVACMode
+    h = make_hass()
+    h.states.set("sensor.room", 25.0)
+    h.states.set("climate.ac", "off", dict(AC))
+    z = zone(h)
+    t = _thermostat(z)
+    run(t.async_set_hvac_mode(HVACMode.HEAT_COOL))
+    assert z.mode == "auto"
+    run(t.async_set_temperature(temperature=21.4))
+    assert z.target == 21.0                       # whole degrees
+    run(t.async_turn_off())
+    assert z.mode == "off"
+    run(t.async_turn_on())
+    assert z.mode == "auto"
+
+
+def test_thermostat_reflects_boost_and_tank_guard():
+    from homeassistant.components.climate import HVACMode
+    h = make_hass()
+    h.states.set("sensor.room", 25.0)
+    h.states.set("climate.ac", "off", dict(AC))
+    z = zone(h)
+    z.mode, z.target = "off", 23.0
+    t = _thermostat(z)
+    run(z.async_set_override("cool", 21.0, 60))
+    assert t.hvac_mode == HVACMode.COOL and t.target_temperature == 21.0
+    run(z.async_clear_override())
+    run(z.async_set_guard("g1", LEVEL_CRITICAL, 22.0, 18.0))
+    assert t.hvac_mode == HVACMode.COOL and t.target_temperature == 18.0
+    assert t.extra_state_attributes["manual_target"] == 23.0   # your own setting is kept

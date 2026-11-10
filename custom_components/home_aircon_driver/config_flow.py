@@ -160,6 +160,20 @@ def _programs_schema(d: dict) -> vol.Schema:
     return vol.Schema(fields)
 
 
+def _own_climates(hass, entity_ids) -> list[str]:
+    """Picked climate entities that are Home Aircon Driver thermostats; using
+    one as an output would make a zone command itself."""
+    from homeassistant.helpers import entity_registry as er
+
+    reg = er.async_get(hass)
+    bad = []
+    for eid in entity_ids or []:
+        ent = reg.async_get(eid)
+        if ent is not None and ent.platform == DOMAIN:
+            bad.append(eid)
+    return bad
+
+
 def _guard_errors(user_input: dict) -> dict[str, str]:
     errors: dict[str, str] = {}
     if float(user_input[CONF_CRITICAL]) <= float(user_input[CONF_WARN]):
@@ -210,6 +224,8 @@ class HomeAirconDriverConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             if not user_input.get(CONF_TEMP_SENSORS):
                 errors[CONF_TEMP_SENSORS] = "need_sensor"
+            elif _own_climates(self.hass, user_input.get(CONF_CLIMATES)):
+                errors[CONF_CLIMATES] = "own_thermostat"
             elif not any(user_input.get(k) for k in (CONF_CLIMATES, CONF_HEATERS, CONF_COOLERS)):
                 errors["base"] = "need_output"
             else:
@@ -269,6 +285,8 @@ class HomeAirconDriverOptionsFlow(OptionsFlow):
                 errors = _guard_errors(user_input)
             elif not user_input.get(CONF_TEMP_SENSORS):
                 errors[CONF_TEMP_SENSORS] = "need_sensor"
+            elif _own_climates(self.hass, user_input.get(CONF_CLIMATES)):
+                errors[CONF_CLIMATES] = "own_thermostat"
             elif not any(user_input.get(k) for k in (CONF_CLIMATES, CONF_HEATERS, CONF_COOLERS)):
                 errors["base"] = "need_output"
             if not errors:

@@ -36,6 +36,18 @@ target as a dashed line, and shaded bands where the zone was cooling (blue) or h
 (orange). It reads Home Assistant's recorder history, so it needs the default
 `recorder` (on by default).
 
+## Thermostat entity (Mushroom, Google Home, Alexa)
+
+Each zone also gets a standard **thermostat** (`climate.<name>_thermostat`) showing the
+zone's real temperature (your sensors) and the driver's own target, with Off / Heat /
+Cool / Auto and the current action. Use it in a Mushroom climate card or the stock
+thermostat card, or expose it to a voice assistant. It shows what the zone is actually
+doing right now (boost, then tank guard, then schedule program, then your own
+mode/target), so while a program is active the target shown is the program's. Changing
+the target or mode on it changes the zone's own settings. The aircon unit keeps its own
+separate entity, which shows the offset-corrected setpoint the driver sends to it (so
+it can differ from the zone target by design).
+
 ## Dropout detection
 
 Every zone and tank guard watches what it depends on and raises a **Dropout** problem

@@ -271,6 +271,8 @@ class ZoneController(_Base):
         super().__init__(hass, entry)
         self.mode = "off"
         self.programs_enabled = True
+        self.eff_mode = "off"      # mode actually in force (boost > program > manual)
+        self.eff_target = DEFAULT_TARGET  # target actually in force
         self.last_error: str | None = None
         self.active_program: dict | None = None
         self.target = DEFAULT_TARGET
@@ -470,15 +472,18 @@ class ZoneController(_Base):
         self.active_program = self._current_program()
         mode = self.active_program["mode"] if self.active_program else self.mode
         target = self.active_program["target"] if self.active_program else self.target
+        self.eff_mode = mode
         if level >= LEVEL_WARN:
             sp = min((g[2] if g[0] == LEVEL_CRITICAL else g[1]) for g in self._guards.values())
             target = min(target, sp)
             self.action = ACT_COOL  # guard forces cooling regardless of mode/temp
+            self.eff_mode = "cool"
             self.status = "guard_critical" if level == LEVEL_CRITICAL else "guard_warn"
         elif self._override_active(temp):
             ov = self.override
             target = ov["target"]  # type: ignore[index]
             self.action = ov["kind"]  # type: ignore[index]
+            self.eff_mode = ov["kind"]  # type: ignore[index]
             self.status = "override_cool" if self.action == ACT_COOL else "override_heat"
         elif temp is None:
             self.action = ACT_IDLE
@@ -492,6 +497,7 @@ class ZoneController(_Base):
         if self.action != ACT_IDLE and self.outputs_lost:
             # Do not report "Cooling" when the unit is not there to do it.
             self.status = "outputs_lost"
+        self.eff_target = target
         self.last_error = None
         await self._apply(target, temp, level)
 

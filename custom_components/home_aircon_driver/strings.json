@@ -59,7 +59,8 @@
       "name_exists": "That name is already in use.",
       "need_sensor": "Pick at least one temperature sensor.",
       "need_output": "Pick at least one climate unit, heater or cooler.",
-      "critical_below_warn": "Critical must be higher than warn."
+      "critical_below_warn": "Critical must be higher than warn.",
+      "own_thermostat": "That is a Home Aircon Driver thermostat. Pick the real aircon unit instead."
     }
   },
   "options": {
@@ -121,7 +122,8 @@
     "error": {
       "need_sensor": "Pick at least one temperature sensor.",
       "need_output": "Pick at least one climate unit, heater or cooler.",
-      "critical_below_warn": "Critical must be higher than warn."
+      "critical_below_warn": "Critical must be higher than warn.",
+      "own_thermostat": "That is a Home Aircon Driver thermostat. Pick the real aircon unit instead."
     }
   },
   "entity": {
@@ -185,6 +187,11 @@
     "binary_sensor": {
       "dropout": {
         "name": "Dropout"
+      }
+    },
+    "climate": {
+      "thermostat": {
+        "name": "Thermostat"
       }
     }
   },
