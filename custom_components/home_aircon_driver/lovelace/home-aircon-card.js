@@ -47,6 +47,7 @@ const STATUS_TEXT = {
   sensor_lost: "Sensors lost",
   override_cool: "Cooling (boost)",
   override_heat: "Heating (boost)",
+  outputs_lost: "Unit unavailable",
 };
 const STATUS_KIND = {
   heating: "heat",
@@ -56,6 +57,7 @@ const STATUS_KIND = {
   guard_warn: "warn",
   guard_critical: "crit",
   sensor_lost: "warn",
+  outputs_lost: "crit",
 };
 
 const esc = (s) =>
@@ -352,6 +354,7 @@ class HomeAirconCard extends HTMLElement {
         missing: "no longer exists",
         silent: p.detail !== null && p.detail !== undefined ? `has not reported for ${p.detail} min` : "has stopped reporting",
         no_response: `is not responding (${p.detail || "command ignored"})`,
+        cannot_cool: "has no working aircon while the tank water is hot",
       })[p.kind] || p.kind;
     return `<div class="drop">${probs
       .map((p) => `<div>⚠️ <b>${esc(p.name)}</b> ${esc(phrase(p))}</div>`)

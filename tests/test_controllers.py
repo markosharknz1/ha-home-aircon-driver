@@ -445,3 +445,40 @@ def test_guard_flags_a_dropped_tank_sensor():
     run(g.async_evaluate())
     assert g.problems and g.problems[0]["entity"] == "sensor.tank"
     assert any("Dropout" in c[2]["title"] for c in _notifs(h))
+
+
+def test_zone_does_not_claim_to_cool_when_its_unit_is_unavailable():
+    h = make_hass()
+    h.states.set("sensor.room", 26.1)
+    h.states.set("climate.ac", "unavailable", {})
+    z = zone(h)
+    z.mode, z.target = "cool", 23.0
+    run(z.async_evaluate())
+    assert z.outputs_lost is True
+    assert z.status == "outputs_lost"
+    h.states.set("climate.ac", "off", dict(AC))
+    run(z.async_evaluate())
+    assert z.outputs_lost is False and z.status == "cooling"
+
+
+def test_guard_raises_cannot_cool_when_protected_zone_has_no_working_unit():
+    h = make_hass()
+    h.states.set("sensor.room", 24.0)
+    h.states.set("climate.ac", "unavailable", {})
+    z = zone(h)
+    h.data["home_aircon_driver"] = {"e1": z}
+    g = GuardController(
+        h,
+        SimpleNamespace(
+            entry_id="g1",
+            title="Reef",
+            data={"kind": "guard", "slug": "reef"},
+            options={"tank_sensors": ["sensor.tank"], "zones": ["e1"], "notify_service": "notify.phone"},
+        ),
+    )
+    h.states.set("sensor.tank", 27.5)
+    run(g.async_evaluate())
+    assert g.result.name == "critical"
+    kinds = [p["kind"] for p in g.problems]
+    assert "cannot_cool" in kinds            # immediate, no grace period
+    assert any("no working aircon" in c[2]["message"] for c in h.services.calls if c[0] == "notify")

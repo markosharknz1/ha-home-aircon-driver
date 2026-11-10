@@ -49,7 +49,7 @@ class ZoneStatus(AirconEntity, SensorEntity):
     """off | idle | heating | cooling | guard_warn | guard_critical | sensor_lost"""
 
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = ["off", "idle", "heating", "cooling", "guard_warn", "guard_critical", "sensor_lost", "override_cool", "override_heat"]
+    _attr_options = ["off", "idle", "heating", "cooling", "guard_warn", "guard_critical", "sensor_lost", "override_cool", "override_heat", "outputs_lost"]
 
     def __init__(self, ctrl: ZoneController) -> None:
         super().__init__(ctrl, "sensor", "status")

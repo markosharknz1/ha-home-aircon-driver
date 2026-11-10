@@ -207,7 +207,7 @@ class _Base:
             key = (p["entity"], p["kind"])
             seen_keys.add(key)
             first = self._first_seen.setdefault(key, now)
-            grace = 0 if p["kind"] in ("silent", "no_response") else HEALTH_GRACE_S
+            grace = 0 if p["kind"] in ("silent", "no_response", "cannot_cool") else HEALTH_GRACE_S
             if now - first >= grace:
                 p["since"] = first
                 confirmed.append(p)
@@ -236,6 +236,7 @@ class _Base:
             "missing": "no longer exists in Home Assistant",
             "silent": silent,
             "no_response": f"did not respond ({p.get('detail')})",
+            "cannot_cool": "has no working aircon while the tank water is hot",
         }.get(p["kind"], p["kind"])
 
     async def _send(self, title: str, message: str) -> None:
@@ -306,6 +307,19 @@ class ZoneController(_Base):
     @property
     def dampers(self) -> list[str]:
         return list(self.cfg.get(CONF_DAMPERS, []))
+
+    @property
+    def outputs_lost(self) -> bool:
+        """True when this zone has outputs and every one is unavailable or gone,
+        so nothing can actually heat or cool."""
+        outs = self.climates + self.heaters + self.coolers
+        if not outs:
+            return False
+        for eid in outs:
+            st = self.hass.states.get(eid)
+            if st is not None and st.state not in ("unavailable", "unknown"):
+                return False
+        return True
 
     @property
     def sensors(self) -> list[str]:
@@ -475,6 +489,9 @@ class ZoneController(_Base):
                 self.action, "off" if mode == "off" else "idle"
             )
 
+        if self.action != ACT_IDLE and self.outputs_lost:
+            # Do not report "Cooling" when the unit is not there to do it.
+            self.status = "outputs_lost"
         self.last_error = None
         await self._apply(target, temp, level)
 
@@ -642,7 +659,14 @@ class GuardController(_Base):
 
     def _health_candidates(self, now: float) -> list[dict]:
         default_min = float(self.cfg.get(CONF_STALE_MIN, DEFAULT_STALE_MIN))
-        return self._input_problems(self.tank_sensors, default_min, now)
+        out = self._input_problems(self.tank_sensors, default_min, now)
+        # Tanks are hot but a protected zone has no working aircon to cool with.
+        if self.result.level >= LEVEL_WARN:
+            for z in self._zones():
+                if z.outputs_lost:
+                    out.append({"entity": "zone:" + z.slug, "name": z.entry.title, "role": "output",
+                                "kind": "cannot_cool", "detail": None})
+        return out
 
     def _zones(self) -> list[ZoneController]:
         found = []

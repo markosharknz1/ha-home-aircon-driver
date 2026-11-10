@@ -153,7 +153,8 @@
           "guard_critical": "TANK CRITICAL - cooling",
           "sensor_lost": "Sensors lost",
           "override_cool": "Cooling (boost)",
-          "override_heat": "Heating (boost)"
+          "override_heat": "Heating (boost)",
+          "outputs_lost": "Unit unavailable"
         }
       },
       "level": {
