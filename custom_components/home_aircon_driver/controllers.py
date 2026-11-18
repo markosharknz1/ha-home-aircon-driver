@@ -73,6 +73,8 @@ from .logic import (
 _LOGGER = logging.getLogger(__name__)
 RESEND_AFTER_S = 300
 REFRESH_EVERY_S = 600
+FALLBACK_MAX_DEVIATION = 4.0   # a unit reading further than this from the last good sensor reading is not trusted
+FALLBACK_MAX_AGE_S = 6 * 3600  # ...and only for this long after the last good reading
 HEALTH_GRACE_S = 120      # unavailable this long before it counts as a dropout (restarts flicker)
 NO_RESPONSE_S = 180       # a unit that has not obeyed a command after this long
 RENOTIFY_S = 6 * 3600     # remind about a dropout that is still ongoing
@@ -271,6 +273,7 @@ class ZoneController(_Base):
         super().__init__(hass, entry)
         self.mode = "off"
         self.programs_enabled = True
+        self._last_good: tuple[float, float] | None = None  # (temp, when) from the real sensors
         self.eff_mode = "off"      # mode actually in force (boost > program > manual)
         self.eff_target = DEFAULT_TARGET  # target actually in force
         self.last_error: str | None = None
@@ -437,8 +440,11 @@ class ZoneController(_Base):
         max_age = default_min * 60
         t = average_fresh(await self._readings(self.sensors, default_min), now, max_age)
         if t is not None:
+            self._last_good = (t, now)
             return t, "sensors"
-        # Fallback: the units' own readings (less accurate, but not blind).
+        # Fallback: the units' own readings. A ducted return sensor can read the
+        # hot roof space (38 C in a 28 C house), so only trust the unit while it
+        # agrees with the last good sensor reading; otherwise report "lost".
         units = []
         for eid in self.climates:
             st = self.hass.states.get(eid)
@@ -447,7 +453,12 @@ class ZoneController(_Base):
             except (TypeError, ValueError, AttributeError):
                 pass
         t = average_fresh(units, now, max_age)
-        return (t, "unit_fallback") if t is not None else (None, "none")
+        if t is None:
+            return None, "none"
+        good = self._last_good
+        if good is not None and now - good[1] <= FALLBACK_MAX_AGE_S and abs(t - good[0]) <= FALLBACK_MAX_DEVIATION:
+            return t, "unit_fallback"
+        return None, "none"  # no trustworthy baseline: better blind than wrong
 
     async def async_evaluate(self) -> None:
         """One decision pass. Never raises: an error is logged and kept in

@@ -15,7 +15,7 @@ config-flow entity pickers, one config entry per thing, rewire later via Options
 - Pick one or more temperature sensors (e.g. Zigbee). They are averaged; stale or
   unavailable ones are ignored.
 - Pick outputs: climate units, heater switches, cooler/fan switches.
-- The unit's own reading is only a fallback if every sensor goes quiet.
+- The unit's own reading is only a fallback if every sensor goes quiet, and only while it agrees (within 4 degrees) with your sensor's last good reading; a ducted return sensor can read the hot roof space, so otherwise the zone reports *Sensors lost* instead of a wrong temperature.
 - Offset correction: if the unit reads 2° cold versus your sensor, the setpoint
   sent to it is shifted so the *room* reaches the target.
 - Entities: Mode (off/heat/cool/auto), Target, Deadband, Temperature, Status.

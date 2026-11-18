@@ -116,12 +116,38 @@ def test_sensor_lost_idles_unless_guarded():
 
 def test_unit_fallback_when_sensors_silent():
     h = make_hass()
-    h.states.set("sensor.room", 25.0, age_s=99999)
+    h.states.set("sensor.room", 25.0)
     h.states.set("climate.ac", "off", {**AC, "current_temperature": 26.0})
     z = zone(h)
     z.mode, z.target = "cool", 22.0
+    run(z.async_evaluate())                       # establishes a good baseline (25.0)
+    assert z.temp_source == "sensors"
+    h.states.set("sensor.room", 25.0, age_s=99999)  # sensor goes quiet
     run(z.async_evaluate())
     assert z.temp_source == "unit_fallback" and z.status == "cooling"
+
+
+def test_unit_fallback_rejects_an_implausible_reading():
+    """A ducted return sensor can read the hot roof space: 38 in a 28 degree house."""
+    h = make_hass()
+    h.states.set("sensor.room", 28.0)
+    h.states.set("climate.ac", "off", {**AC, "current_temperature": 38.0})
+    z = zone(h)
+    z.mode, z.target = "cool", 24.0
+    run(z.async_evaluate())
+    h.states.set("sensor.room", 28.0, age_s=99999)
+    run(z.async_evaluate())
+    assert z.temperature is None and z.status == "sensor_lost"
+
+
+def test_unit_fallback_needs_a_baseline():
+    h = make_hass()
+    h.states.set("sensor.room", 25.0, age_s=99999)   # never had a good reading
+    h.states.set("climate.ac", "off", {**AC, "current_temperature": 26.0})
+    z = zone(h)
+    z.mode = "cool"
+    run(z.async_evaluate())
+    assert z.temperature is None and z.status == "sensor_lost"
 
 
 def test_guard_controller_pushes_level_and_goes_critical_on_silence():
