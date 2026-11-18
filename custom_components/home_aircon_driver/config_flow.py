@@ -21,6 +21,7 @@ from homeassistant.util import slugify
 
 from .const import (
     CONF_CLIMATES,
+    CONF_BLIND_RUN,
     CONF_COOLERS,
     CONF_DAMPERS,
     CONF_CRITICAL,
@@ -88,6 +89,7 @@ def _zone_schema(d: dict) -> vol.Schema:
                 CONF_SENSOR_MAX_AGE, default=d.get(CONF_SENSOR_MAX_AGE, DEFAULT_SENSOR_MAX_AGE)
             ): _num(5, 1440, 5, "min"),
             vol.Required(CONF_REFRESH, default=d.get(CONF_REFRESH, False)): selector.BooleanSelector(),
+            vol.Required(CONF_BLIND_RUN, default=d.get(CONF_BLIND_RUN, True)): selector.BooleanSelector(),
         }
     )
 
@@ -126,7 +128,7 @@ def _guard_schema(hass, d: dict) -> vol.Schema:
 
 MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 HW_KEYS = {
-    CONF_TEMP_SENSORS, CONF_CLIMATES, CONF_HEATERS, CONF_COOLERS, CONF_DAMPERS, CONF_SENSOR_MAX_AGE, CONF_REFRESH,
+    CONF_TEMP_SENSORS, CONF_CLIMATES, CONF_HEATERS, CONF_COOLERS, CONF_DAMPERS, CONF_SENSOR_MAX_AGE, CONF_REFRESH, CONF_BLIND_RUN,
     CONF_TANK_SENSORS, CONF_ZONES, CONF_WARN, CONF_CRITICAL, CONF_WARN_SETPOINT,
     CONF_CRITICAL_SETPOINT, CONF_HYSTERESIS, CONF_STALE_MIN, CONF_NOTIFY,
 }

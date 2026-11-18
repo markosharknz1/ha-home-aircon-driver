@@ -106,7 +106,7 @@ def test_sensor_lost_idles_unless_guarded():
     h = make_hass()
     h.states.set("sensor.room", 25.0, age_s=99999)  # stale
     h.states.set("climate.ac", "cool", {**AC, "current_temperature": None})
-    z = zone(h)
+    z = zone(h, run_when_blind=False)            # opted out of blind running
     z.mode = "cool"
     run(z.async_evaluate())
     assert z.status == "sensor_lost"
@@ -137,7 +137,8 @@ def test_unit_fallback_rejects_an_implausible_reading():
     run(z.async_evaluate())
     h.states.set("sensor.room", 28.0, age_s=99999)
     run(z.async_evaluate())
-    assert z.temperature is None and z.status == "sensor_lost"
+    assert z.temperature is None                  # the 38 degree reading is not used as the room temperature
+    assert z.status == "lost_cool"                # ...but the unit is still asked to cool on its own thermostat
 
 
 def test_unit_fallback_needs_a_baseline():
@@ -147,7 +148,7 @@ def test_unit_fallback_needs_a_baseline():
     z = zone(h)
     z.mode = "cool"
     run(z.async_evaluate())
-    assert z.temperature is None and z.status == "sensor_lost"
+    assert z.temperature is None and z.status == "lost_cool"
 
 
 def test_guard_controller_pushes_level_and_goes_critical_on_silence():
@@ -562,3 +563,61 @@ def test_thermostat_reflects_boost_and_tank_guard():
     run(z.async_set_guard("g1", LEVEL_CRITICAL, 22.0, 18.0))
     assert t.hvac_mode == HVACMode.COOL and t.target_temperature == 18.0
     assert t.extra_state_attributes["manual_target"] == 23.0   # your own setting is kept
+
+
+def _blind_zone(h, **extra):
+    h.states.set("sensor.room", 28.0, age_s=99999)   # sensor silent
+    h.states.set("climate.ac", "off", {**AC, "current_temperature": None})
+    return zone(h, **extra)
+
+
+def test_blind_zone_in_cool_mode_keeps_cooling_on_the_unit():
+    h = make_hass()
+    z = _blind_zone(h)
+    z.mode, z.target = "cool", 22.0
+    run(z.async_evaluate())
+    assert z.status == "lost_cool" and z.blind is True
+    calls = h.services.calls
+    assert ("climate", "set_hvac_mode", {"entity_id": "climate.ac", "hvac_mode": "cool"}) in calls
+    # the unit gets the plain target (no offset correction without a sensor)
+    assert ("climate", "set_temperature", {"entity_id": "climate.ac", "temperature": 22.0}) in calls
+
+
+def test_blind_zone_never_runs_dumb_switches():
+    h = make_hass()
+    h.states.set("switch.cooler", "off")
+    z = _blind_zone(h, coolers=["switch.cooler"])
+    z.mode = "cool"
+    run(z.async_evaluate())
+    assert z.status == "lost_cool"
+    assert not [c for c in h.services.calls if c[0] == "homeassistant" and c[1] == "turn_on"]
+
+
+def test_blind_zone_off_mode_and_option_off_stay_idle():
+    h = make_hass()
+    z = _blind_zone(h)
+    z.mode = "off"
+    run(z.async_evaluate())
+    assert z.status == "off" and z.blind is False
+    h2 = make_hass()
+    z2 = _blind_zone(h2, run_when_blind=False)
+    z2.mode = "cool"
+    run(z2.async_evaluate())
+    assert z2.status == "sensor_lost" and z2.action == "idle"
+
+
+def test_blind_auto_uses_last_good_reading_and_stays_idle_without_one():
+    h = make_hass()
+    h.states.set("sensor.room", 28.0)
+    h.states.set("climate.ac", "off", {**AC, "current_temperature": None})
+    z = zone(h)
+    z.mode, z.target = "auto", 22.0
+    run(z.async_evaluate())                          # real reading 28 -> cools
+    h.states.set("sensor.room", 28.0, age_s=99999)   # then the sensor drops out
+    run(z.async_evaluate())
+    assert z.status == "lost_cool"                   # last good 28 > target 22
+    h2 = make_hass()
+    z2 = _blind_zone(h2)
+    z2.mode, z2.target = "auto", 22.0
+    run(z2.async_evaluate())
+    assert z2.status == "sensor_lost"                # never had a reading: no direction

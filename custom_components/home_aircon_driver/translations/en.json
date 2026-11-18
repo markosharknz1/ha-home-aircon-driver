@@ -34,7 +34,8 @@
           "sensor_max_age_min": "Default: treat a sensor as silent after (minutes)",
           "dampers": "Zone dampers (e.g. AirTouch zone fans, optional)",
           "poll_quiet_sensors": "Poll quiet sensors (ONLY for cloud/polled sensors; leave OFF for Zigbee - it can hide a dead sensor)",
-          "notify_service": "Notify service for dropouts (optional, e.g. notify.mobile_app_phone)"
+          "notify_service": "Notify service for dropouts (optional, e.g. notify.mobile_app_phone)",
+          "run_when_blind": "If every sensor is lost, keep cooling/heating on the unit's own thermostat"
         }
       },
       "guard_hw": {
@@ -92,7 +93,8 @@
           "stale_min": "Treat tank sensors as silent after (minutes)",
           "notify_service": "Notify service (optional)",
           "dampers": "Zone dampers (e.g. AirTouch zone fans, optional)",
-          "poll_quiet_sensors": "Poll quiet sensors (ONLY for cloud/polled sensors; leave OFF for Zigbee - it can hide a dead sensor)"
+          "poll_quiet_sensors": "Poll quiet sensors (ONLY for cloud/polled sensors; leave OFF for Zigbee - it can hide a dead sensor)",
+          "run_when_blind": "If every sensor is lost, keep cooling/heating on the unit's own thermostat"
         }
       },
       "programs": {
@@ -156,7 +158,9 @@
           "sensor_lost": "Sensors lost",
           "override_cool": "Cooling (boost)",
           "override_heat": "Heating (boost)",
-          "outputs_lost": "Unit unavailable"
+          "outputs_lost": "Unit unavailable",
+          "lost_cool": "Sensors lost - unit cooling",
+          "lost_heat": "Sensors lost - unit heating"
         }
       },
       "level": {

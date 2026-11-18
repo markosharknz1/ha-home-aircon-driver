@@ -22,6 +22,7 @@ from homeassistant.helpers.event import (
 
 from .const import (
     CONF_CLIMATES,
+    CONF_BLIND_RUN,
     CONF_COOLERS,
     CONF_CRITICAL,
     CONF_CRITICAL_SETPOINT,
@@ -273,6 +274,7 @@ class ZoneController(_Base):
         super().__init__(hass, entry)
         self.mode = "off"
         self.programs_enabled = True
+        self.blind = False  # True while running on the unit's own thermostat with no usable sensor
         self._last_good: tuple[float, float] | None = None  # (temp, when) from the real sensors
         self.eff_mode = "off"      # mode actually in force (boost > program > manual)
         self.eff_target = DEFAULT_TARGET  # target actually in force
@@ -325,6 +327,28 @@ class ZoneController(_Base):
             if st is not None and st.state not in ("unavailable", "unknown"):
                 return False
         return True
+
+    def _blind_action(self, mode: str, target: float) -> str:
+        """What to do when no sensor reading is usable.
+
+        Keep trying rather than sitting idle: hand the job to the aircon unit's
+        own thermostat (we only send mode + the target setpoint; the unit stops
+        itself). Needs a climate unit: a plain on/off switch has no thermostat
+        and would run unchecked, so switches stay off.
+        """
+        if not self.cfg.get(CONF_BLIND_RUN, True) or not self.climates:
+            return ACT_IDLE
+        if mode == "cool":
+            return ACT_COOL
+        if mode == "heat":
+            return ACT_HEAT
+        if mode == "auto" and self._last_good is not None:
+            last = self._last_good[0]
+            if last > target:
+                return ACT_COOL
+            if last < target:
+                return ACT_HEAT
+        return ACT_IDLE
 
     @property
     def sensors(self) -> list[str]:
@@ -477,6 +501,7 @@ class ZoneController(_Base):
         temp, source = await self._zone_temperature(now)
         self.temperature, self.temp_source = temp, source
 
+        self.blind = False
         level = self.guard_level
         # A scheduled program (schedule helper "on" + season match) replaces
         # the manual mode/target while it is active.
@@ -497,8 +522,14 @@ class ZoneController(_Base):
             self.eff_mode = ov["kind"]  # type: ignore[index]
             self.status = "override_cool" if self.action == ACT_COOL else "override_heat"
         elif temp is None:
-            self.action = ACT_IDLE
-            self.status = "sensor_lost" if mode != "off" else "off"
+            blind = self._blind_action(mode, target) if mode != "off" else ACT_IDLE
+            if blind != ACT_IDLE:
+                self.action = blind
+                self.blind = True
+                self.status = "lost_cool" if blind == ACT_COOL else "lost_heat"
+            else:
+                self.action = ACT_IDLE
+                self.status = "sensor_lost" if mode != "off" else "off"
         else:
             self.action = decide(temp, target, self.deadband, mode, self.action)
             self.status = {ACT_HEAT: "heating", ACT_COOL: "cooling"}.get(
@@ -528,8 +559,8 @@ class ZoneController(_Base):
         # Each output is isolated: one failing command must not stop the
         # others (or the entity refresh) and is reported in last_error.
         jobs = (
-            [(eid, self._set_switch(eid, self.action == ACT_HEAT)) for eid in self.heaters]
-            + [(eid, self._set_switch(eid, self.action == ACT_COOL)) for eid in self.coolers]
+            [(eid, self._set_switch(eid, self.action == ACT_HEAT and not self.blind)) for eid in self.heaters]
+            + [(eid, self._set_switch(eid, self.action == ACT_COOL and not self.blind)) for eid in self.coolers]
             + [(eid, self._set_climate(eid, target, temp, level)) for eid in self.climates]
             + [("dampers", self._apply_dampers(level))]
         )

@@ -48,6 +48,18 @@ the target or mode on it changes the zone's own settings. The aircon unit keeps 
 separate entity, which shows the offset-corrected setpoint the driver sends to it (so
 it can differ from the zone target by design).
 
+## When every sensor is lost
+
+By default a zone keeps trying instead of going idle: in **Cool** (or **Heat**) mode it
+tells the aircon unit to cool (or heat) to your target and lets the **unit's own
+thermostat** do the stopping. In **Auto** it picks the direction from the last good
+sensor reading (and stays idle if it has none). Status shows *Sensors lost - unit
+cooling*. This only applies to climate units: plain on/off switch heaters/coolers have
+no thermostat to stop them, so they stay off while the driver is blind. Switch it off per
+zone with *If every sensor is lost, keep cooling/heating on the unit's own thermostat*.
+The unit judges by its own reading, which on a ducted system can be hot (return/roof
+air), so expect it to run harder than your sensor would have asked.
+
 ## Dropout detection
 
 Every zone and tank guard watches what it depends on and raises a **Dropout** problem

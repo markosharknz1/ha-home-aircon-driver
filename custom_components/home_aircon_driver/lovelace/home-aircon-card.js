@@ -48,6 +48,8 @@ const STATUS_TEXT = {
   override_cool: "Cooling (boost)",
   override_heat: "Heating (boost)",
   outputs_lost: "Unit unavailable",
+  lost_cool: "Sensors lost - unit cooling",
+  lost_heat: "Sensors lost - unit heating",
 };
 const STATUS_KIND = {
   heating: "heat",
@@ -58,6 +60,8 @@ const STATUS_KIND = {
   guard_critical: "crit",
   sensor_lost: "warn",
   outputs_lost: "crit",
+  lost_cool: "cool",
+  lost_heat: "heat",
 };
 
 const esc = (s) =>

@@ -16,6 +16,7 @@ CONF_COOLERS = "coolers"
 CONF_DAMPERS = "dampers"
 CONF_SENSOR_MAX_AGE = "sensor_max_age_min"
 CONF_SENSOR_TIMEOUTS = "sensor_timeouts"  # {entity_id: minutes}, per-sensor override
+CONF_BLIND_RUN = "run_when_blind"  # keep cooling/heating on the unit when sensors are lost
 CONF_REFRESH = "poll_quiet_sensors"  # opt-in; see README (can mask a dead sensor)
 
 # Guard
